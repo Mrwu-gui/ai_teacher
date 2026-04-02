@@ -13,15 +13,93 @@ process.on('unhandledRejection', (err) => console.error('Unhandled:', err?.messa
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const DIST_DIR = process.env.DIST_DIR || join(__dirname, 'dist');
-const API_BASE = process.env.API_BASE || 'https://api.deepseek.com';
-const API_KEY = process.env.API_KEY || '';
-const MODEL = process.env.MODEL || 'deepseek-chat';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const DATA_DIR = join(__dirname, 'data');
 const FEEDBACK_DIR = join(DATA_DIR, 'feedback_uploads');
 const FEEDBACK_FILE = join(DATA_DIR, 'teacher_feedback.json');
 const TOOL_USAGE_FILE = join(DATA_DIR, 'tool_usage.json');
-const FEEDBACK_ADMIN_TOKEN = process.env.FEEDBACK_ADMIN_TOKEN || API_KEY;
+
+function loadLocalEnv(filePath) {
+  if (!existsSync(filePath)) return {};
+  const env = {};
+  const raw = readFileSync(filePath, 'utf8');
+  raw.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const index = trimmed.indexOf('=');
+    if (index === -1) return;
+    const key = trimmed.slice(0, index).trim();
+    let value = trimmed.slice(index + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  });
+  return env;
+}
+
+const LOCAL_ENV = loadLocalEnv(join(__dirname, '.env.local'));
+const envValue = (key, fallback = '') => process.env[key] || LOCAL_ENV[key] || fallback;
+const splitKeys = (value) =>
+  String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const PROVIDERS = {
+  deepseek: {
+    name: 'deepseek',
+    baseUrl: envValue('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
+    model: envValue('DEEPSEEK_MODEL', 'deepseek-chat'),
+    keys: splitKeys(envValue('DEEPSEEK_KEYS', envValue('API_KEY', '')))
+  },
+  kimi: {
+    name: 'kimi',
+    baseUrl: envValue('KIMI_BASE_URL', 'https://api.moonshot.cn/v1'),
+    model: envValue('KIMI_MODEL', 'kimi-k2.5'),
+    keys: splitKeys(envValue('KIMI_KEYS', ''))
+  }
+};
+
+const LONG_FORM_TOOL_IDS = new Set([
+  'lesson-plan',
+  'pe-lesson-plan',
+  'lesson-5e',
+  'unit-plan',
+  'lesson-talk',
+  'project-based-learning',
+  'science-lab',
+  'group-work',
+  'pd-planner',
+  'sel-lesson-plan',
+  'syllabus-generator',
+  'exam-review',
+  'feedback-rubric',
+  'classroom-observation',
+  'writing-feedback',
+  'class-meeting',
+  'parent-communication',
+  'professional-email',
+  'class-newsletter',
+  'recommendation-letter',
+  'thank-you-letter',
+  'promo-copy',
+  'student-support',
+  'teaching-adjustment',
+  'support-goals',
+  'social-story',
+  'restorative-reflection',
+  'classroom-management',
+  'inclusive-support-plan',
+  'individual-support-plan',
+  'behavior-support-plan'
+]);
+
+const ANALYZE_PROVIDER = envValue('ANALYZE_PROVIDER', 'deepseek');
+const FEEDBACK_ADMIN_TOKEN = envValue('FEEDBACK_ADMIN_TOKEN', splitKeys(envValue('DEEPSEEK_KEYS', ''))[0] || '');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -377,18 +455,70 @@ function extractJsonObject(text) {
   }
 }
 
-async function postToModel(payload) {
-  return fetch(`${API_BASE}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      ...payload
-    }),
-  });
+function pickRandomKey(keys, tried = new Set()) {
+  const available = keys.filter((key) => !tried.has(key));
+  if (available.length === 0) return '';
+  return available[Math.floor(Math.random() * available.length)];
+}
+
+function normalizeBaseUrl(baseUrl) {
+  return String(baseUrl || '').replace(/\/+$/, '');
+}
+
+function chooseProvider(toolId, mode = 'generate') {
+  if (mode === 'analyze') {
+    return PROVIDERS[ANALYZE_PROVIDER] || PROVIDERS.deepseek;
+  }
+
+  if (LONG_FORM_TOOL_IDS.has(toolId) && PROVIDERS.kimi.keys.length > 0) {
+    return PROVIDERS.kimi;
+  }
+
+  return PROVIDERS.deepseek;
+}
+
+async function postToModel(payload, options = {}) {
+  const { toolId = '', mode = 'generate' } = options;
+  const provider = chooseProvider(toolId, mode);
+
+  if (!provider || provider.keys.length === 0) {
+    throw new Error(`provider_unavailable:${provider?.name || 'unknown'}`);
+  }
+
+  const tried = new Set();
+  let lastError = null;
+
+  while (tried.size < provider.keys.length) {
+    const key = pickRandomKey(provider.keys, tried);
+    if (!key) break;
+    tried.add(key);
+
+    try {
+      const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          ...payload
+        }),
+      });
+
+      if ([401, 402, 403, 429, 500, 502, 503, 504].includes(response.status) && tried.size < provider.keys.length) {
+        lastError = new Error(`${provider.name}:${response.status}`);
+        continue;
+      }
+
+      response._provider = provider.name;
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error(`all_keys_failed:${provider.name}`);
 }
 
 async function readStreamingText(upstream) {
@@ -449,7 +579,7 @@ async function handleAnalyze(req, res) {
         { role: 'system', content: buildAnalyzePrompt(tool) },
         { role: 'user', content: message }
       ]
-    });
+    }, { toolId: tool.id, mode: 'analyze' });
     const text = await readStreamingText(upstream);
     const result = extractJsonObject(text) || {
       message: '我先帮你梳理了一下需求，还差几项关键信息。',
@@ -483,7 +613,7 @@ async function handleGenerate(req, res) {
         { role: 'system', content: buildSystemPrompt(tool) },
         { role: 'user', content: buildPrompt(tool, formData) }
       ]
-    });
+    }, { toolId: tool.id, mode: 'generate' });
   } catch (err) {
     console.error('Generate fetch failed:', err.message);
     return sendJson(res, 502, { error: err.message });
@@ -563,5 +693,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`AI备课工作台 running at http://localhost:${PORT}`);
-  console.log(`API: ${API_BASE} | Model: ${MODEL}`);
+  console.log(
+    `Providers: deepseek(${PROVIDERS.deepseek.keys.length}) -> ${PROVIDERS.deepseek.model}, kimi(${PROVIDERS.kimi.keys.length}) -> ${PROVIDERS.kimi.model}`
+  );
 });

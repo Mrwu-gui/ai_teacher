@@ -1207,10 +1207,10 @@ const ToolDetailPage = () => {
                   </div>
                   <div className="flex-1">
                     <h4 className="text-base font-semibold text-slate-900 mb-2">
-                      还可以再补充一点课堂信息
+                      再补充一些信息，我能生成得更精准哦
                     </h4>
                     <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-                      如果你愿意再补充一些信息，我会把内容写得更贴近课堂实际。这里都是可选项，不填写也可以直接开始生成。
+                      下面的信息可以帮我更了解你的班级和学生，不填也没关系，填了会生成更贴合实际的内容哦。
                     </p>
                     
                     {/* 提示点 */}

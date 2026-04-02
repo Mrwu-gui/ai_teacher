@@ -10,3 +10,5 @@ recovery-backup/
 功能Prompt总表.md
 MagicSchoolAI_中文文档对照清单.md
 scripts/
+.env.local
+.env.*.local
