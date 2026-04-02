@@ -5,7 +5,7 @@ src/node_modules/
 src/dist/
 
 recovery-backup/
-data/
+/data/
 
 功能Prompt总表.md
 MagicSchoolAI_中文文档对照清单.md
