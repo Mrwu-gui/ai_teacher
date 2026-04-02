@@ -21,7 +21,6 @@ import {
   File,
 } from 'lucide-react'
 import { getToolById } from '../data/tools'
-import { buildPrompt, buildSystemPrompt } from '../data/prompts'
 
 const sanitizeGeneratedResult = (text) => {
   if (!text) return ''
@@ -710,59 +709,18 @@ const ToolDetailPage = () => {
 
   // AI分析用户输入
   const analyzeUserInput = async (message) => {
-    const visibleFields = tool.fields.filter(f => !f.isAdvanced).map((field) => ({
-      key: field.key,
-      label: field.label,
-      type: field.type,
-      required: !!field.required,
-      options: field.options || []
-    }))
-
-    const response = await fetch('/api/chat', {
+    const response = await fetch('/api/tools/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [
-          {
-            role: 'system',
-            content: `你是中国教师工具的需求拆解助手。你的任务是把老师的一句话需求，拆解成当前工具需要的字段。
-
-工具名称：${tool.name}
-可用字段：
-${JSON.stringify(visibleFields, null, 2)}
-
-请只返回 JSON，格式必须是：
-{
-  "message": "一句自然、简短的中文确认，概括你已理解的需求",
-  "recognized": {
-    "字段key": "已经从老师原话里识别出的值"
-  },
-  "requiredFields": [
-    {
-      "key": "还需要追问的字段key",
-      "label": "字段显示名",
-      "type": "text/select/textarea",
-      "required": true,
-      "placeholder": "给老师看的自然提示语",
-      "options": []
-    }
-  ],
-  "advancedFields": []
-}
-
-要求：
-1. 能从老师原话中识别出来的字段，不要再放进 requiredFields。
-2. select 类型如果能匹配 options，recognized 里必须返回标准值。
-3. requiredFields 只保留当前真正还缺的必要字段，按追问顺序返回。
-4. placeholder 要像老师助手在追问，不能只是重复字段名。
-5. advancedFields 先返回空数组。`
-          },
-          { role: 'user', content: message }
-        ]
+        toolId: tool.id,
+        message
       })
     })
-    const content = await readStreamingText(response)
-    const parsed = extractJsonObject(content)
+    if (!response.ok) {
+      throw new Error('分析失败')
+    }
+    const parsed = await response.json()
 
     const recognized = parsed?.recognized && typeof parsed.recognized === 'object' ? parsed.recognized : {}
 
@@ -857,14 +815,12 @@ ${JSON.stringify(visibleFields, null, 2)}
     setResult('')
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/tools/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [
-            { role: 'system', content: buildSystemPrompt(tool) },
-            { role: 'user', content: buildPrompt(tool, formData) }
-          ]
+          toolId: tool.id,
+          formData
         })
       })
 
