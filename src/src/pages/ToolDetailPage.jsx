@@ -684,7 +684,16 @@ const ToolDetailPage = () => {
       setCurrentFieldIndex(0)
       setFieldAnswers(prev => ({ ...prev, ...recognized }))
       setFormData(prev => ({ ...prev, ...recognized }))
-      setShowAdvancedTip(filteredRequiredFields.length === 0)
+      if (filteredRequiredFields.length === 0) {
+        if (mergedAdvancedFields.length > 0) {
+          setShowAdvancedTip(true)
+        } else {
+          setInteractionPhase('result')
+          setTimeout(() => handleGenerate(), 0)
+        }
+      } else {
+        setShowAdvancedTip(false)
+      }
       setShowAdvancedForm(false)
       setIsAnalyzing(false)
       inputRef.current?.focus()
@@ -802,9 +811,14 @@ ${JSON.stringify(visibleFields, null, 2)}
     if (currentFieldIndex < requiredFields.length - 1) {
       setCurrentFieldIndex(prev => prev + 1)
     } else {
-      // 必填完成，显示高级选项提示
+      // 必填完成后，如有可补充字段则温和提醒；否则直接生成
       setCurrentFieldIndex(requiredFields.length)
-      setShowAdvancedTip(true)
+      if (advancedFields.length > 0) {
+        setShowAdvancedTip(true)
+      } else {
+        setInteractionPhase('result')
+        handleGenerate()
+      }
     }
   }
 
@@ -815,18 +829,23 @@ ${JSON.stringify(visibleFields, null, 2)}
       if (currentFieldIndex < requiredFields.length - 1) {
         setCurrentFieldIndex(prev => prev + 1)
       } else {
-        setShowAdvancedTip(true)
+        if (advancedFields.length > 0) {
+          setShowAdvancedTip(true)
+        } else {
+          setInteractionPhase('result')
+          handleGenerate()
+        }
       }
     }
   }
 
-  // 进入高级选项
+  // 进入补充信息
   const handleShowAdvanced = () => {
     setShowAdvancedForm(true)
     setShowAdvancedTip(false)
   }
 
-  // 跳过高级选项，直接生成
+  // 跳过补充信息，直接生成
   const handleSkipAdvanced = () => {
     setInteractionPhase('result')
     handleGenerate()
@@ -1205,7 +1224,7 @@ ${JSON.stringify(visibleFields, null, 2)}
           </div>
         )}
 
-        {/* 高级选项提示 - 必选完成后的弱提醒 */}
+        {/* 补充信息提示 */}
         {showAdvancedTip && (
           <div className="mt-8 relative">
             {/* 成功提示 */}
@@ -1221,42 +1240,39 @@ ${JSON.stringify(visibleFields, null, 2)}
               </div>
             </div>
 
-            {/* 高级选项提醒 */}
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-3xl p-6 relative overflow-hidden">
-              {/* 装饰 */}
-              <div className="absolute top-0 right-0 w-32 h-32 bg-amber-100 rounded-full -translate-y-1/2 translate-x-1/2 opacity-50" />
-              
+            {/* 补充信息提醒 */}
+            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6">
               <div className="relative">
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0">
-                    <div className="w-12 h-12 bg-amber-100 rounded-3xl flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-amber-600" />
+                    <div className="w-12 h-12 bg-blue-50 rounded-3xl flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-blue-500" />
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h4 className="text-base font-semibold text-amber-900 mb-2">
-                      想要更精准的内容吗？
+                    <h4 className="text-base font-semibold text-slate-900 mb-2">
+                      还可以再补充一点课堂信息
                     </h4>
-                    <p className="text-sm text-amber-800 mb-4 leading-relaxed">
-                      填写<span className="font-semibold">高级选项</span>可以让AI更好地理解您的需求，生成更贴合实际场景的内容。这些信息是可选的，但会让结果更出色！
+                    <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+                      如果你愿意再补充一些信息，我会把内容写得更贴近课堂实际。这里都是可选项，不填写也可以直接开始生成。
                     </p>
                     
-                    {/* 价值点展示 */}
+                    {/* 提示点 */}
                     <div className="grid grid-cols-2 gap-2 mb-5">
-                      <div className="flex items-center gap-2 text-xs text-amber-700">
-                        <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                         <span>更符合教学场景</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-amber-700">
-                        <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                         <span>更精准的内容定位</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-amber-700">
-                        <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                         <span>更适合学生水平</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-amber-700">
-                        <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                         <span>更多细节支持</span>
                       </div>
                     </div>
@@ -1265,17 +1281,17 @@ ${JSON.stringify(visibleFields, null, 2)}
                     <div className="flex gap-3">
                       <button
                         onClick={handleShowAdvanced}
-                        className="flex-1 px-5 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-3xl text-sm font-medium transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
+                        className="flex-1 px-5 py-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-3xl text-sm font-medium transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
                       >
                         <Settings className="w-4 h-4" />
-                        填写高级选项
+                        补充信息
                       </button>
                       <button
                         onClick={handleSkipAdvanced}
-                        className="flex-1 px-5 py-3 bg-white hover:bg-amber-50 text-amber-700 border-2 border-amber-200 hover:border-amber-300 rounded-3xl text-sm font-medium transition-all flex items-center justify-center gap-2"
+                        className="flex-1 px-5 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-3xl text-sm font-medium transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
                       >
                         <Send className="w-4 h-4" />
-                        直接生成
+                        开始生成
                       </button>
                     </div>
                   </div>
@@ -1285,13 +1301,13 @@ ${JSON.stringify(visibleFields, null, 2)}
           </div>
         )}
 
-        {/* 高级选项表单 - 更优雅的展示 */}
+        {/* 补充信息表单 */}
         {showAdvancedForm && advancedFields.length > 0 && (
           <div className="mt-8">
             <div className="flex items-center gap-2 mb-5">
-              <Settings className="w-5 h-5 text-amber-500" />
-              <h3 className="text-base font-semibold text-slate-900">高级选项</h3>
-              <span className="text-xs text-blue-400 bg-blue-50 px-2 py-0.5 rounded-full">可选</span>
+              <Settings className="w-5 h-5 text-blue-500" />
+              <h3 className="text-base font-semibold text-slate-900">补充信息</h3>
+              <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">可选</span>
             </div>
 
             <div className="space-y-4 bg-blue-50/30 rounded-3xl p-5">
