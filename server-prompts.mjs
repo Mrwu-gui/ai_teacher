@@ -55,11 +55,137 @@ const applyToneGuide = (tool, prompt) => {
   return compact([prompt, ...guide])
 }
 
+const localizationGuideByCategory = {
+  default: [
+    '本土化要求：',
+    '- 全文统一使用中国学校、课堂、教研和家校沟通语境。',
+    '- 避免直译式表达、国外课标表述和生硬翻译腔。',
+    '- 优先使用中国教师熟悉的话语方式，内容要像一线教师会直接使用或修改的成品。'
+  ],
+  '教学设计': [
+    '本土化要求：',
+    '- 贴合中国中小学 40/45 分钟课时制、备课习惯和课堂组织方式。',
+    '- 教学流程、板书、作业、评价等表述要符合教案与说课稿常见写法。'
+  ],
+  '教学内容': [
+    '本土化要求：',
+    '- 示例、情境和表达贴合中国学生生活经验与课堂使用习惯。',
+    '- 避免照搬国外教材语境，优先使用本土校园、家庭和社会生活场景。'
+  ],
+  '练习命题': [
+    '本土化要求：',
+    '- 题目表述、答题说明、答案解析和评分表达要符合中国学校命题与阅卷习惯。',
+    '- 若未特别说明，优先贴合单元检测、课堂练习、期中期末复习等常见场景。'
+  ],
+  '反馈评价': [
+    '本土化要求：',
+    '- 反馈语言要符合中国教师、班主任和教研活动常见表达方式。',
+    '- 强调发展性、诊断性和可操作性，避免生硬的机器点评口吻。'
+  ],
+  '沟通写作': [
+    '本土化要求：',
+    '- 文本需符合中国校园沟通礼仪、家校沟通习惯和正式文书表达方式。',
+    '- 根据对象区分微信式、通知式、邮件式和正式书面表达，不要套用国外邮件腔。'
+  ],
+  '学生支持': [
+    '本土化要求：',
+    '- 方案要符合中国学校德育、心理健康教育、班级管理和家校协同语境。',
+    '- 避免照搬国外特殊教育制度术语，重在提供本土课堂和学校场景可落地的支持建议。'
+  ],
+  '课堂助手': [
+    '本土化要求：',
+    '- 助手角色、示例提问和边界说明都要贴合中国课堂、作业辅导和资料问答场景。',
+    '- 表达自然简洁，避免互联网产品腔和生硬翻译腔。'
+  ]
+}
+
+const applyLocalizationGuide = (tool, prompt) => {
+  const guide = localizationGuideByCategory[tool.category] || localizationGuideByCategory.default
+  return compact([prompt, ...guide])
+}
+
+const curriculumGuideByCategory = {
+  '教学设计': [
+    '新课标要求：',
+    '- 全文统一采用 2022 版义务教育课程标准话语体系。',
+    '- 优先使用“核心素养”“大单元教学”“教—学—评一体化”“过程性评价”“表现性评价”“跨学科主题学习”“多元评价”等表述。',
+    '- 教学目标请尽量按照“核心素养、知识与技能、过程与方法、情感态度与价值观”四个维度呈现。',
+    '- 评价设计不要只停留在“课堂提问、当堂练习”，需体现过程性评价、表现性评价、学生自评/互评、课堂观察、任务单或学习档案袋等方式。',
+    '- 所有表达应贴合中国学校课堂、教研和备课语境，避免翻译腔。'
+  ],
+  '教学内容': [
+    '新课标要求：',
+    '- 内容需对齐 2022 版义务教育课程标准，体现核心素养导向。',
+    '- 表达贴合中国学生认知特点与课堂使用习惯，避免翻译腔和国外课标表述。'
+  ],
+  '练习命题': [
+    '新课标要求：',
+    '- 命题需对齐 2022 版义务教育课程标准、学业质量要求和核心素养导向。',
+    '- 优先体现基础巩固、迁移应用、思维提升与多元评价意识，表述符合中国学校常见命题习惯。'
+  ],
+  '反馈评价': [
+    '新课标要求：',
+    '- 反馈需体现核心素养导向和发展性评价理念。',
+    '- 优先使用“过程性评价”“表现性评价”“多元评价”“教—学—评一体化”等中国教学评价表述。'
+  ],
+  '沟通写作': [
+    '本土表达要求：',
+    '- 全文使用中国学校常见沟通语境，避免生硬翻译腔。',
+    '- 语言要专业、自然、得体，符合教师、班主任、教研或家校沟通场景。'
+  ],
+  '学生支持': [
+    '本土支持要求：',
+    '- 方案需符合中国学校学生发展支持、德育一体化和心理健康教育语境。',
+    '- 强调优势导向、支持路径与家校协同，避免照搬国外教育体系表述。'
+  ],
+  '课堂助手': [
+    '课堂应用要求：',
+    '- 助手设定需贴合中国学校课堂使用场景和教学伦理边界。',
+    '- 优先基于课程标准、教材和教师提供材料提供帮助。'
+  ]
+}
+
+const applyCurriculumGuide = (tool, prompt) => {
+  const guide = curriculumGuideByCategory[tool.category]
+  if (!guide) return prompt
+  return compact([prompt, ...guide])
+}
+
+const applyFormatGuide = (prompt) =>
+  compact([
+    prompt,
+    '格式要求：',
+    '- 优先使用清晰的小标题、编号列表和项目符号组织内容。',
+    '- 如需呈现对照信息，优先使用“项目名：内容”或分点方式，不要输出不完整的 Markdown 表格。',
+    '- 如果必须输出表格，请确保是完整、规范、可直接渲染的表格，不要出现多余的反斜杠、残缺分隔符或半行表格。'
+  ])
+
+const appendWorkflowContext = (prompt, values) => {
+  const context = values?.__workflowContext
+  if (!context) return prompt
+
+  const previousText = (context.previousSummaries || [])
+    .map((item, index) => `${index + 1}. ${item.name}：${item.summary}`)
+    .join('\n')
+
+  return compact([
+    prompt,
+    '工作流上下文（已压缩）：',
+    line('全局公共信息', Object.entries(context.commonInput || {}).map(([key, value]) => `${key}=${value}`).join('；')),
+    previousText ? `上游节点摘要：\n${previousText}` : '',
+    line('紧邻上一步原文片段', context.immediatePreviousResult),
+    '要求：',
+    '- 优先利用全局公共信息和上游摘要保持整条工作流口径一致。',
+    '- 不要机械重复上游内容，只在当前节点真正需要时继承。',
+    '- 如果上游已生成过相关内容，请在此基础上衔接，而不是完全另起一套。'
+  ])
+}
+
 const promptBuilders = {
   'lesson-plan': (values) =>
     withOutput(
       compact([
-        '你是一名熟悉课堂教学法与课程设计的教学设计专家，请根据教师需求生成一份完整的教学方案。',
+        '请结合教师教学需求，生成一份符合中国学校课堂实际、体现新课标核心素养导向的完整教案。',
         '',
         '教师输入：',
         line('年级/课程', values.grade_subject),
@@ -77,25 +203,26 @@ const promptBuilders = {
         yesNo(values.need_blackboard, '- 输出中需要包含板书设计'),
         yesNo(values.need_homework, '- 输出中需要包含分层作业设计（必做+选做）')
       ]),
-      ['教学概述', '教学目标', '教学准备', '教学流程', '过程性评价', '评价方式', '板书设计', '作业布置', '教学反思', '差异化教学与拓展建议'],
+      ['教学概述', '教学目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '教学准备', '教学流程', '评价设计（过程性评价、表现性评价、课堂观察、学生自评/互评、教—学—评一体化说明）', '板书设计', '分层作业', '教学反思', '差异化教学与拓展建议'],
       [
         '要求：',
         '- 生成结构完整、逻辑连贯、真实可执行的教学方案。',
         '- 明确教师活动、学生活动、检查理解方式与结束性评价。',
-        '- 内容要贴近中国中小学课堂，不要空泛套话。'
+        '- 内容要贴近中国中小学课堂，不要空泛套话。',
+        '- 教材版本如未特别说明，语文和道德与法治优先按部编版表达，数学、科学、体育优先按人教版表达。'
       ]
     ),
   'lesson-5e': (values) =>
     withOutput(
       compact([
-        '你是一名熟悉课堂教学法与课程设计的教学设计专家，请根据教师需求生成一份完整的五环节探究教学方案。',
+        '请结合教师教学需求，生成一份符合中国学校课堂实际、体现新课标核心素养导向的 5E 探究式教学方案。',
         '',
         '教师输入：',
         line('年级/课程', values.grade_subject),
         line('教材版本', values.textbook_version),
         line('主题或单元', values.topic),
         line('课程标准或教学目标', values.teaching_objectives),
-        line('教学类型', '5E 课'),
+        line('教学类型', '5E 探究式教学（参与—探究—解释—迁移—评价）'),
         line('课时长度', values.duration),
         line('可用资源', values.resources),
         line('学情描述', values.student_situation),
@@ -103,18 +230,19 @@ const promptBuilders = {
         line('探究重点', values.inquiry_focus),
         line('特别要求', values.extra_requirements)
       ]),
-      ['教学概述', '教学目标', '教学准备', '引入', '探究', '解释', '迁移/拓展', '评价', '板书设计', '作业布置', '教学反思', '差异化教学与拓展建议'],
+      ['教学概述', '教学目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '教学准备', '参与（Engage）', '探究（Explore）', '解释（Explain）', '迁移（Elaborate）', '评价（Evaluate）', '板书设计', '分层作业', '教学反思', '差异化教学与拓展建议'],
       [
         '要求：',
         '- 每个环节写清教师活动、学生活动、设计意图与时间分配。',
         '- 探究活动要具备问题链和学生参与过程。',
-        '- 保持中国课堂可执行性，避免照搬西式术语。'
+        '- 保持中国课堂可执行性，避免照搬西式术语。',
+        '- 评价部分需体现过程性评价、表现性评价与教—学—评一体化。'
       ]
     ),
   'pe-lesson-plan': (values) =>
     withOutput(
       compact([
-        '你是一名熟悉中国学校体育教学与学生安全管理的体育教师，请根据以下信息生成一份可直接上课使用的体育教案。',
+        '请结合教师教学需求，生成一份符合《中小学体育与健康教学指导纲要》与学校课堂实际的体育教案。',
         '',
         '基本信息：',
         line('年级与学科', values.grade_subject),
@@ -126,7 +254,7 @@ const promptBuilders = {
         line('安全注意事项', values.safety_notes),
         yesNo(values.need_game, '- 教学中需要加入游戏化或竞赛化环节')
       ]),
-      ['教学目标', '教学重点与难点', '场地器材准备', '热身活动', '基本部分', '放松整理', '安全提示', '课后反思'],
+      ['教学目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '教学重点与难点', '场地器材准备', '热身活动', '基本部分', '放松整理', '安全提示', '课后反思'],
       [
         '要求：',
         '- 写清教师组织方式、队形安排、练习次数和时间分配。',
@@ -137,7 +265,7 @@ const promptBuilders = {
   'unit-plan': (values) =>
     withOutput(
       compact([
-        '你是一名擅长单元整体教学设计的教师，请根据以下信息生成一份单元整体设计方案。',
+        '请结合教师教学需求，生成一份体现新课标理念的大单元教学设计方案。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -147,12 +275,12 @@ const promptBuilders = {
         line('单元课时数', values.unit_hours),
         line('单元重难点', values.key_difficult)
       ]),
-      ['单元定位与价值', '单元目标', '课时安排总览', '每课时重点任务', '关键问题链设计', '过程性评价与终结性评价', '分层作业与单元拓展', '教师实施建议']
+      ['单元定位与价值', '单元目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '大单元教学整体结构', '课时安排总览', '每课时重点任务', '关键问题链设计', '评价设计（过程性评价、表现性评价、终结性评价、教—学—评一体化）', '分层作业与单元拓展', '教师实施建议']
     ),
   'lesson-talk': (values) =>
     withOutput(
       compact([
-        '你是一名熟悉中国中小学教研表达方式的教师，请根据以下信息生成一份结构清晰、可直接用于教研交流或比赛展示的说课稿。',
+        '请结合教师教学需求，生成一份符合中国学校教研语境、体现新课标理念的说课稿。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -161,7 +289,7 @@ const promptBuilders = {
         line('教材版本', values.textbook_version),
         line('教学方法说明', values.teaching_method)
       ]),
-      ['教材分析', '学情分析', '教学目标', '教学重难点', '教法与学法', '教学过程设计', '板书设计', '设计亮点与反思'],
+      ['教材分析', '学情分析', '教学目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '教学重难点', '教法与学法', '教学过程设计', '评价设计（过程性评价、表现性评价、教—学—评一体化）', '板书设计', '设计亮点与反思'],
       [
         '要求：',
         '- 语言符合中国学校教研场景。',
@@ -169,10 +297,71 @@ const promptBuilders = {
         '- 如果教师未提供完整学情，请基于常见班情做合理化表达。'
       ]
     ),
+  'unit-learning-plan': (values) =>
+    withOutput(
+      compact([
+        '请结合教师教学需求，生成一份符合中国学校检查、教研和资料存档场景的大单元学历案。',
+        '',
+        '输入信息：',
+        line('年级与学科', values.grade_subject),
+        line('教材版本', values.textbook_version),
+        line('单元名称', values.unit_name),
+        line('单元课时', values.unit_hours),
+        line('学情', values.student_situation),
+        line('单元核心目标', values.unit_goals),
+        yesNo(values.need_layered_homework, '- 需要分层作业设计'),
+        yesNo(values.need_blackboard, '- 需要板书设计'),
+        yesNo(values.need_rubric, '- 需要评价量规')
+      ]),
+      [
+        '单元基本信息',
+        '单元内容分析',
+        '学情分析',
+        '单元学习目标（含核心素养）',
+        '评价任务设计（教—学—评一体化）',
+        '单元学习安排（课时分配）',
+        '分课时学习过程',
+        '作业设计（分层、符合双减）',
+        '板书设计',
+        '单元整体评价与反思'
+      ],
+      [
+        '要求：',
+        '- 必须使用中国学校常见学历案写作语气，结构完整，便于直接打印、上交、参赛或存档。',
+        '- 突出核心素养、大单元教学、教—学—评一体化、过程性评价与表现性评价。',
+        '- 分课时学习过程要写清每课时学习任务、学习活动、教师支持与评价安排。',
+        '- 如果教师没有补充部分可选信息，也要输出完整框架，但内容要务实、可落地，避免空话。',
+        '- 作业设计要体现双减背景下的分层与适量原则。'
+      ]
+    ),
+  'core-literacy-breakdown': (values) =>
+    withOutput(
+      compact([
+        '请结合教师教学需求，严格依据 2022 版义务教育课程标准，对课题或单元进行核心素养拆解。',
+        '',
+        '输入信息：',
+        line('年级与学科', values.grade_subject),
+        line('教材版本', values.textbook_version),
+        line('课题/单元', values.topic)
+      ]),
+      [
+        '对应学科核心素养1及目标说明',
+        '对应学科核心素养2及目标说明',
+        '对应学科核心素养3及目标说明',
+        '对应学科核心素养4及目标说明'
+      ],
+      [
+        '要求：',
+        '- 只围绕该学科官方核心素养展开，不编造新的素养名称。',
+        '- 每个素养下都要给出 1—2 句可直接写进教案、学历案、计划总结的目标表述。',
+        '- 语言规范、清楚、可落地，避免空泛套话。',
+        '- 学科表述必须符合中国中小学教学要求和新课标官方语境。'
+      ]
+    ),
   'project-based-learning': (values) =>
     withOutput(
       compact([
-        '你是一名擅长项目式学习设计的教师，请根据以下信息生成一份项目式学习方案。',
+        '请结合教师教学需求，生成一份体现新课标核心素养导向的项目式学习方案。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -182,12 +371,12 @@ const promptBuilders = {
         line('可用资源', values.resources),
         line('成果评价方式', values.assessment_plan)
       ]),
-      ['项目概述', '驱动性问题', '项目目标', '项目实施阶段与任务安排', '小组协作与教师支持方式', '项目成果形式', '评价量规建议', '风险点与实施提醒']
+      ['项目概述', '驱动性问题', '项目目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '跨学科主题学习说明', '项目实施阶段与任务安排', '小组协作与教师支持方式', '项目成果形式', '评价量规建议', '风险点与实施提醒']
     ),
   'science-lab': (values) =>
     withOutput(
       compact([
-        '你是一名擅长科学探究教学的教师，请根据以下信息生成一份实验课设计。',
+        '请结合教师教学需求，生成一份符合中国中小学科学实验规范、体现新课标探究要求的实验课设计。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -196,7 +385,7 @@ const promptBuilders = {
         line('实验材料与条件', values.resources),
         line('学生基础与风险点', values.student_situation)
       ]),
-      ['实验课目标', '实验材料清单', '实验步骤与教师指导语', '学生观察记录建议', '安全注意事项', '数据分析与结论形成', '评价与反思']
+      ['实验课目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '实验材料清单', '实验步骤与教师指导语', '学生观察记录建议', '安全注意事项（符合中小学科学实验安全规范）', '数据分析与结论形成', '评价与反思']
     ),
   'group-work': (values) =>
     withOutput(
@@ -412,7 +601,7 @@ const promptBuilders = {
   'sel-lesson-plan': (values) =>
     withOutput(
       compact([
-        '你是一名熟悉中国学校德育与社会情感学习活动设计的教师，请根据以下信息生成一份课程方案。',
+        '请结合教师教学需求，生成一份符合中国学校德育一体化与心理健康教育语境的社会情感学习课程方案。',
         '',
         '输入信息：',
         line('适用年级', values.grade),
@@ -421,12 +610,12 @@ const promptBuilders = {
         line('课时长度', values.duration),
         line('偏好活动形式', values.activity_preference)
       ]),
-      ['课程背景', '课程目标', '活动准备', '活动流程', '教师引导语', '评价与反思', '后续延伸建议']
+      ['课程背景', '课程目标（核心素养、知识与技能、过程与方法、情感态度与价值观）', '活动准备', '活动流程', '教师引导语', '评价与反思', '后续延伸建议']
     ),
   'syllabus-generator': (values) =>
     withOutput(
       compact([
-        '请根据以下信息生成一份适合中国学校场景的课程纲要。',
+        '请结合教师教学需求，生成一份适合中国学校场景、结构清晰的课程纲要。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -435,7 +624,7 @@ const promptBuilders = {
         line('课程周期', values.weeks),
         line('评价方式', values.evaluation_method)
       ]),
-      ['课程定位', '课程目标', '阶段安排', '学习内容概览', '评价方式', '学习要求与建议']
+      ['课程定位', '课程目标', '阶段安排', '学习内容概览', '评价方式（体现过程性评价与多元评价）', '学习要求与建议']
     ),
   'exercise-gen': (values) =>
     withOutput(
@@ -662,6 +851,33 @@ const promptBuilders = {
         '- 必做题覆盖基础目标，拓展题体现思维提升。'
       ]
     ),
+  'double-reduction-homework': (values) =>
+    withOutput(
+      compact([
+        '请根据教师提供的信息，生成一份符合国家“双减”政策要求的分层作业设计。',
+        '',
+        '输入信息：',
+        line('年级与学科', values.grade_subject),
+        line('课题/知识点', values.topic),
+        line('预计时长', values.duration),
+        line('学情', values.student_situation),
+        line('题量', values.question_count)
+      ]),
+      [
+        '作业总说明（时长、目标、分层说明）',
+        '基础层（必做）',
+        '提升层（选做）',
+        '拓展层（挑战）',
+        '批改与评价建议（鼓励式、过程性）'
+      ],
+      [
+        '要求：',
+        '- 严格控制作业总量与完成时长，不超量、不机械重复。',
+        '- 分层结构固定为基础必做、提升选做、拓展挑战。',
+        '- 题型简明清楚，紧贴课堂教学内容和学生实际水平。',
+        '- 批改与评价建议要体现鼓励性、过程性和双减背景下的减负增效。'
+      ]
+    ),
   'choice-board': (values) =>
     withOutput(
       compact([
@@ -698,7 +914,7 @@ const promptBuilders = {
   'exam-review': (values) =>
     withOutput(
       compact([
-        '你是一名经验丰富的中国中小学教师，请根据以下信息生成一份试卷讲评课方案。',
+        '请结合教师教学需求，生成一份符合中国学校课堂实际、突出错因诊断与改进指导的试卷讲评课方案。',
         '',
         '输入信息：',
         line('考试名称', values.exam_name),
@@ -707,7 +923,7 @@ const promptBuilders = {
         line('成绩分析数据', values.score_analysis),
         line('典型错误统计', values.common_mistakes)
       ]),
-      ['成绩与问题概览', '共性错因分析', '讲评重点与顺序', '课堂讲评流程', '典型题讲解思路', '当堂巩固练习', '后续补救建议'],
+      ['成绩与问题概览', '共性错因分析', '讲评重点与顺序', '课堂讲评流程', '典型题讲解思路', '当堂巩固练习', '评价与改进建议（体现教—学—评一体化）', '后续补救建议'],
       [
         '要求：',
         '- 讲评重点放在错因分析和改进方法，不只是公布答案。',
@@ -717,7 +933,7 @@ const promptBuilders = {
   'feedback-rubric': (values) =>
     withOutput(
       compact([
-        '你是一名具备评价素养的教师，请根据给定材料和评价要求，生成具体、客观、可执行的反馈。',
+        '请根据给定材料和评价要求，生成符合中国学校评价语境、具体且可执行的反馈。',
         '',
         '教师输入：',
         line('待评价内容', values.evaluation_content),
@@ -727,7 +943,7 @@ const promptBuilders = {
         line('输出形式', values.feedback_type),
         line('补充评价维度', values.evaluation_aspects)
       ]),
-      ['总体评价', '主要优点', '需要改进之处', '后续建议'],
+      ['总体评价（对应核心素养达成情况）', '主要优点（附具体证据）', '需要改进之处（聚焦关键问题）', '后续建议（过程性评价、表现性评价或改进路径）'],
       [
         '要求：',
         '- 基于可见证据提炼表现亮点。',
@@ -757,7 +973,7 @@ const promptBuilders = {
   'classroom-observation': (values) =>
     withOutput(
       compact([
-        '请根据以下信息生成一份适合学校教研活动使用的听评课反馈。',
+        '请根据以下信息生成一份适合中国学校教研活动使用的听评课反馈。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -766,7 +982,7 @@ const promptBuilders = {
         line('课堂记录', values.classroom_notes),
         line('反馈风格', values.feedback_tone)
       ]),
-      ['课堂亮点', '目标达成分析', '教学组织与学生活动观察', '值得优化的问题', '可操作改进建议', '综合评价']
+      ['课堂亮点', '目标达成分析（含核心素养落实情况）', '教学组织与学生活动观察', '值得优化的问题', '可操作改进建议', '综合评价']
     ),
   'survey-creator': (values) =>
     withOutput(
@@ -789,7 +1005,7 @@ const promptBuilders = {
   'writing-feedback': (values) =>
     withOutput(
       compact([
-        '请根据以下信息生成一份写作反馈。',
+        '请根据以下信息生成一份符合中国学校写作教学评价语境的写作反馈。',
         '',
         '输入信息：',
         line('年级与学科', values.grade_subject),
@@ -798,7 +1014,7 @@ const promptBuilders = {
         line('反馈语气', values.language_style),
         yesNo(values.need_revision_suggestion, '- 需要修改示例')
       ]),
-      ['总体评价', '主要优点', '需要改进之处', '修改建议', '鼓励性总结'],
+      ['总体评价', '主要优点（附具体证据）', '需要改进之处（聚焦关键问题）', '修改建议', '鼓励性总结'],
       [
         '- 反馈要具体，避免空泛套话。',
         '- 如果提供修改建议，最好给出可模仿的示例表达。'
@@ -839,7 +1055,7 @@ const promptBuilders = {
   'parent-communication': (values) =>
     withOutput(
       compact([
-        '你是一名沟通能力出色的中国中小学教师，请根据以下信息生成家校沟通文本。',
+        '请根据以下信息生成一份符合中国学校家校沟通习惯、专业得体的沟通文本。',
         '',
         '基本信息：',
         line('沟通类型', values.comm_type),
@@ -849,7 +1065,7 @@ const promptBuilders = {
         line('特殊需求', values.special_needs),
         yesNo(values.need_signature, '- 需要附带家长签字回执提醒')
       ]),
-      ['主要沟通文本', '简短版', '注意事项'],
+      ['主要沟通文本', '简短版', '沟通提醒'],
       [
         '要求：',
         '- 客观描述事实，避免制造家长对立情绪。',
@@ -859,7 +1075,7 @@ const promptBuilders = {
   'professional-email': (values) =>
     withOutput(
       compact([
-        '你是一名熟悉学校沟通规范的教师，请根据以下信息撰写一段适合目标对象的正式沟通文本。',
+        '请根据以下信息撰写一段符合中国学校正式沟通规范的文本。',
         '',
         '输入信息：',
         line('沟通对象', values.audience),
@@ -873,7 +1089,7 @@ const promptBuilders = {
   'class-newsletter': (values) =>
     withOutput(
       compact([
-        '你是一名班主任，请根据以下信息生成一份适合发送给家长的班级通讯。',
+        '请根据以下信息生成一份适合发送给家长、符合中国班主任表达习惯的班级通讯。',
         '',
         '输入信息：',
         line('班级名称', values.class_name),
@@ -886,7 +1102,7 @@ const promptBuilders = {
   'email-reply': (values) =>
     withOutput(
       compact([
-        '请根据以下来信信息生成一封正式、得体的回复。',
+        '请根据以下来信信息生成一封正式、得体、符合中国校园沟通语境的回复。',
         '',
         '输入信息：',
         line('来信对象', values.audience),
@@ -900,7 +1116,7 @@ const promptBuilders = {
   'recommendation-letter': (values) =>
     withOutput(
       compact([
-        '请根据以下信息生成一封推荐信。',
+        '请根据以下信息生成一封正式、自然、符合中国教育场景表达习惯的推荐信。',
         '',
         '输入信息：',
         line('被推荐人', values.candidate_name),
@@ -914,7 +1130,7 @@ const promptBuilders = {
   'thank-you-letter': (values) =>
     withOutput(
       compact([
-        '请根据以下信息生成一封感谢信。',
+        '请根据以下信息生成一封真诚、得体、符合中国校园沟通习惯的感谢信。',
         '',
         '输入信息：',
         line('感谢对象', values.audience),
@@ -927,7 +1143,7 @@ const promptBuilders = {
   'promo-copy': (values) =>
     withOutput(
       compact([
-        '请根据以下信息生成宣传文案。',
+        '请根据以下信息生成一组符合中国校园传播语境的宣传文案。',
         '',
         '输入信息：',
         line('活动名称', values.event_name),
@@ -1182,7 +1398,32 @@ export const buildPrompt = (tool, values) => {
     throw new Error(`缺少工具 ${tool.id} 的独立 prompt builder`)
   }
 
-  return applyToneGuide(tool, builder(values))
+  return applyFormatGuide(
+    applyCurriculumGuide(
+      tool,
+      applyLocalizationGuide(tool, applyToneGuide(tool, appendWorkflowContext(builder(values), values)))
+    )
+  )
+}
+
+const getSystemRolePrefix = (tool) => {
+  if (['教学设计', '教学内容', '练习命题', '反馈评价'].includes(tool.category)) {
+    return '你是一名熟悉 2022 版义务教育课程标准、核心素养导向的资深教师/学科教师/教研工作者。'
+  }
+
+  if (tool.category === '学生支持') {
+    return '你是一名熟悉中国学校学生发展支持、德育一体化和校园沟通语境的资深教师/班主任/学生发展指导者。'
+  }
+
+  if (tool.category === '沟通写作') {
+    return '你是一名熟悉中国校园沟通规范、本土礼仪和教师表达习惯的专业教育沟通顾问。'
+  }
+
+  if (tool.category === '课堂助手') {
+    return '你是一名熟悉中国学校课堂场景、教学边界设定和教育伦理要求的课堂智能助手设计者。'
+  }
+
+  return '你是一名熟悉中国学校教学场景和教师工作流的资深教育工作者。'
 }
 
 const systemPromptByTool = {
@@ -1191,6 +1432,8 @@ const systemPromptByTool = {
   'pe-lesson-plan': '你是一名熟悉中国学校体育教学、安全管理与课时组织的资深体育教师。',
   'unit-plan': '你是一名擅长单元整体教学设计、任务统整与评价设计的资深教师。',
   'lesson-talk': '你是一名熟悉中国学校教研、说课展示与教学表达的资深教师。',
+  'unit-learning-plan': '你是一名精通中国学校学历案写作、大单元教学设计和新课标落实的资深教师。',
+  'core-literacy-breakdown': '你是一名精通 2022 版义务教育课程标准、能够准确拆解学科核心素养目标的学科教研员。',
   'project-based-learning': '你是一名擅长项目式学习设计、跨任务组织与成果评价的资深教师。',
   'science-lab': '你是一名熟悉科学实验课设计、探究活动组织与安全规范的资深教师。',
   'group-work': '你是一名擅长合作学习设计、任务分工与课堂组织的资深教师。',
@@ -1219,6 +1462,7 @@ const systemPromptByTool = {
   'science-3d-assessment': '你是一名擅长科学探究评价、证据解释和任务设计的资深科学教师。',
   'multi-step-assignment': '你是一名擅长任务型学习活动与多步骤作业设计的资深教师。',
   'layered-homework': '你是一名擅长差异化作业设计与学习梯度安排的资深教师。',
+  'double-reduction-homework': '你是一名熟悉国家双减政策、擅长控量分层作业设计的一线教师。',
   'choice-board': '你是一名擅长差异化学习任务、学生自主选择和选择板设计的资深教师。',
   'text-scaffold': '你是一名擅长差异化教学、文本改写与支架设计的资深教师。',
   'exam-review': '你是一名擅长试卷分析、错因诊断与讲评课设计的资深教师。',
@@ -1258,5 +1502,5 @@ export const buildSystemPrompt = (tool) => {
   if (!prompt) {
     throw new Error(`缺少工具 ${tool.id} 的 system prompt`)
   }
-  return prompt
+  return `${getSystemRolePrefix(tool)}\n${prompt}`
 }

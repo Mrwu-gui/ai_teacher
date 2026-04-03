@@ -19,13 +19,124 @@ import {
   FileText,
   FileCode,
   File,
+  GitBranch,
 } from 'lucide-react'
 import { getToolById } from '../data/tools'
+import { getWorkflowRun, syncWorkflowRunFromServer, updateWorkflowRun } from '../data/workflows'
+
+const countTableDelimiters = (line) => (line.match(/(?<!\\)\|/g) || []).length
+
+const getTableCells = (line) => {
+  let normalized = line
+    .replace(/\\\|/g, '|')
+    .replace(/\s*\\\s*(?=\|)/g, ' ')
+    .replace(/\s*\\\s*$/g, '')
+    .trim()
+
+  if (!normalized.startsWith('|')) return null
+
+  const delimiterCount = countTableDelimiters(normalized)
+  if (delimiterCount < 2) return null
+
+  if (!normalized.startsWith('|')) normalized = `| ${normalized}`
+  if (!normalized.endsWith('|')) normalized = `${normalized} |`
+
+  const cells = normalized
+    .split('|')
+    .map((cell) => cell.trim())
+    .filter(Boolean)
+
+  return cells.length >= 2 ? cells : null
+}
+
+const normalizeTableBlock = (rows) => {
+  if (rows.length < 2) return rows
+
+  const normalizedRows = rows.map((row) => {
+    const cells = getTableCells(row)
+    if (!cells) return row.trim()
+    return `| ${cells.join(' | ')} |`
+  })
+
+  const secondRowCells = getTableCells(normalizedRows[1])
+  const isSeparatorRow = secondRowCells?.every((cell) => /^:?-{3,}:?$/.test(cell))
+
+  if (isSeparatorRow) return normalizedRows
+
+  const headerCells = getTableCells(normalizedRows[0]) || []
+  const separatorRow = `| ${headerCells.map(() => '---').join(' | ')} |`
+  return [normalizedRows[0], separatorRow, ...normalizedRows.slice(1)]
+}
+
+const normalizeGeneratedMarkdown = (text) => {
+  const lines = text.split('\n')
+  const normalizedLines = []
+  let tableBuffer = []
+
+  const flushTableBuffer = () => {
+    if (!tableBuffer.length) return
+    if (tableBuffer.length >= 2) {
+      normalizedLines.push(...normalizeTableBlock(tableBuffer))
+    } else {
+      normalizedLines.push(tableBuffer[0].trim())
+    }
+    tableBuffer = []
+  }
+
+  lines.forEach((rawLine) => {
+    const line = rawLine
+      .trimEnd()
+      .replace(/\s*\\+\s*$/g, '')
+      .replace(/\s+\|\s*$/g, '')
+    const isCandidateTableRow = !!getTableCells(line)
+
+    if (isCandidateTableRow) {
+      tableBuffer.push(line)
+      return
+    }
+
+    flushTableBuffer()
+    if (line === '|' || line === '\\') return
+    normalizedLines.push(line)
+  })
+
+  flushTableBuffer()
+
+  return normalizedLines
+    .join('\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const replaceFormMarkup = (text) => text
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;/gi, "'")
+  .replace(/<input[^>]*type=['"]checkbox['"][^>]*checked[^>]*\/?>/gi, '☑ ')
+  .replace(/<input[^>]*type=['"]checkbox['"][^>]*\/?>/gi, '□ ')
+  .replace(/<input[^>]*type=['"]radio['"][^>]*checked[^>]*\/?>/gi, '◉ ')
+  .replace(/<input[^>]*type=['"]radio['"][^>]*\/?>/gi, '○ ')
+  .replace(/<input[^>]*type=['"]text['"][^>]*value=['"]([^'"]*)['"][^>]*\/?>/gi, '[$1]')
+  .replace(/<input[^>]*type=['"]text['"][^>]*placeholder=['"]([^'"]*)['"][^>]*\/?>/gi, '[$1]')
+  .replace(/<textarea[^>]*placeholder=['"]([^'"]*)['"][^>]*><\/textarea>/gi, '\n[$1]\n')
+  .replace(/<textarea[^>]*>([\s\S]*?)<\/textarea>/gi, '\n$1\n')
+  .replace(/<button[^>]*>([\s\S]*?)<\/button>/gi, '$1')
+  .replace(/<label[^>]*>([\s\S]*?)<\/label>/gi, '$1')
+  .replace(/<option[^>]*>([\s\S]*?)<\/option>/gi, '- $1\n')
+  .replace(/<select[^>]*>/gi, '\n')
+  .replace(/<\/select>/gi, '\n')
+  .replace(/<form[^>]*>/gi, '\n')
+  .replace(/<\/form>/gi, '\n')
+  .replace(/<input[^>]*\/?>/gi, '')
 
 const sanitizeGeneratedResult = (text) => {
   if (!text) return ''
 
   let cleaned = text.replace(/\r\n/g, '\n').trimStart()
+
+  cleaned = replaceFormMarkup(cleaned)
 
   // 先处理 HTML 实体
   cleaned = cleaned.replace(/&amp;/gi, '&')
@@ -40,6 +151,7 @@ const sanitizeGeneratedResult = (text) => {
   cleaned = cleaned.replace(/&rsquo;/gi, "'")
   cleaned = cleaned.replace(/&mdash;/gi, '——')
   cleaned = cleaned.replace(/&ndash;/gi, '–')
+  cleaned = replaceFormMarkup(cleaned)
 
   // 处理换行类标签
   cleaned = cleaned.replace(/<br\s*\/?>/gi, '\n')
@@ -102,7 +214,7 @@ const sanitizeGeneratedResult = (text) => {
   // 清理多余的空行
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n')
 
-  return cleaned
+  return normalizeGeneratedMarkdown(cleaned)
 }
 
 const escapeHtml = (text) => text
@@ -113,7 +225,7 @@ const escapeHtml = (text) => text
   .replace(/'/g, '&#39;')
 
 const formatInlineMarkdown = (text) => {
-  let html = text
+  let html = replaceFormMarkup(text)
 
   // 处理 HTML 标签
   html = html.replace(/<br\s*\/?>/gi, '\n')
@@ -204,9 +316,17 @@ const markdownToHtml = (markdown) => {
 
   const flushTable = () => {
     if (tableRows.length === 0) return
+    if (tableRows.length < 2) {
+      blocks.push(`<p>${tableRows.map((row) => formatInlineMarkdown(row)).join('\n')}</p>`)
+      tableRows = []
+      inTable = false
+      return
+    }
     let html = '<table>'
     tableRows.forEach((row, index) => {
-      const cells = row.split('|').filter(c => c.trim() !== '').map(c => formatInlineMarkdown(c.trim()))
+      const cells = (getTableCells(row) || [])
+        .map((cell) => formatInlineMarkdown(cell))
+      if (cells.length === 0) return
       const tag = index === 0 ? 'th' : 'td'
       const cellHtml = cells.map(c => `<${tag}>${c}</${tag}>`).join('')
       html += `<tr>${cellHtml}</tr>`
@@ -258,7 +378,7 @@ const markdownToHtml = (markdown) => {
     }
 
     // 检测表格行
-    if (line.includes('|') && line.match(/\|.+\|/)) {
+    if (getTableCells(line)) {
       if (/^\|[\s\-:|]+\|$/.test(line) || /^[\s\-:|]+$/.test(line.replace(/\|/g, ''))) {
         continue
       }
@@ -295,8 +415,8 @@ const markdownToHtml = (markdown) => {
       flushParagraph()
       if (listType && listType !== 'ul') flushList()
       listType = 'ul'
-      const checked = taskItem[1].toLowerCase() === 'x' ? 'checked' : ''
-      listItems.push(`<input type="checkbox" ${checked} disabled /> ${taskItem[2]}`)
+      const marker = taskItem[1].toLowerCase() === 'x' ? '☑' : '□'
+      listItems.push(`${marker} ${taskItem[2]}`)
       continue
     }
 
@@ -336,6 +456,21 @@ const markdownToHtml = (markdown) => {
   flushCodeBlock()
   return blocks.join('')
 }
+
+const splitResultBlocks = (markdown) => {
+  if (!markdown) return []
+
+  return markdown
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block, index) => ({
+      id: `block-${index}`,
+      content: block
+    }))
+}
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const buildExportHtml = (title, content) => `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -429,18 +564,271 @@ const extractJsonObject = (text) => {
   }
 }
 
+const buildInitialFormData = (tool, prefill = {}) => {
+  const initialData = {}
+  tool.fields.forEach((field) => {
+    initialData[field.key] = prefill[field.key] ?? field.default ?? (field.type === 'toggle' ? false : '')
+  })
+  return initialData
+}
+
+const shuffleList = (items) => [...items].sort(() => Math.random() - 0.5)
+
+const FIELD_PROMPT_BANK = {
+  grade_subject: ['五年级语文', '三年级数学', '初二物理', '高一英语', '七年级历史', '六年级科学'],
+  grade: ['三年级', '五年级', '初一', '初二', '高一'],
+  textbook_version: ['部编版', '人教版'],
+  topic: ['《慈母情深》', '分数的初步认识', '光的反射', '背影', '一次函数', '校园消防安全'],
+  unit_name: ['三年级上册第一单元', '第六单元', '光现象', '分数单元', '阅读策略单元'],
+  project_topic: ['校园节水行动', '家乡文化小研究', '班级阅读节策划'],
+  lesson_topic: ['勾股定理', '背影', '分数应用'],
+  teaching_objectives: ['突出朗读体验和情感理解', '让学生能说清知识点并学会迁移', '希望课堂更生动、任务更清晰'],
+  unit_goals: ['梳理单元目标、课时安排和评价节点', '兼顾知识落实和核心素养发展'],
+  talk_focus: ['重点讲清教材处理和学生活动设计', '希望说课稿更适合校内展示'],
+  group_goal: ['让小组讨论更有分工，最后能有成果展示', '突出合作探究和课堂参与'],
+  resources: ['学校现有常规器材就行，注意安全提醒', '尽量用教室里容易准备的材料'],
+  training_theme: ['核心素养导向课堂设计', '作业分层设计'],
+  audience: ['家长', '班主任', '学生', '全体教师', '校内师生'],
+  purpose: ['通知', '回复', '反馈', '邀请'],
+  content: ['最近孩子作业拖延比较明显，想和家长沟通配合方式', '想提醒家长关注孩子课堂状态和作业完成情况'],
+  comm_type: ['通知', '家长信', '学习建议'],
+  special_needs: ['语气温和一点，不要太生硬', '希望更像班主任平时真实会说的话'],
+  exercise_type: ['随堂练习', '课后作业', '单元检测'],
+  question_type: ['阅读题', '填空题', '简答题', '混合题型'],
+  question_count: ['5题', '8题', '10题', '15题'],
+  difficulty: ['基础', '适中', '提升'],
+  cognitive_levels: ['理解+应用', '应用+分析'],
+  source_text: ['我会贴一段课文节选，想围绕它出题', '我有一段阅读材料，想直接转成课堂任务'],
+  video_summary: ['一段关于消防逃生的短视频', '一个介绍光合作用的科普视频'],
+  data_source: ['一次班级阅读习惯调查结果', '一张关于家庭用电的统计表'],
+  task_goal: ['想训练学生读图、比较和表达结论', '希望学生能从数据里发现规律并提出解释'],
+  student_situation: ['学生课堂注意力不集中，作业也拖延', '学生基础薄弱，但愿意配合，缺少方法', '最近情绪波动比较明显，和同伴相处有点紧张'],
+  student_strengths: ['表达欲强，愿意参与课堂互动', '动手能力不错，也愿意接受提醒', '有责任心，和熟悉同学相处比较自然'],
+  support_type: ['学困生辅导', '心理疏导', '成长规划'],
+  student_name: ['小明', '李想', '王悦'],
+  strengths: ['课堂积极发言，乐于帮助同学', '做事认真，值日有责任心'],
+  improvements: ['作业完成质量还需提升', '课堂专注度还不够稳定'],
+  exam_name: ['初三语文月考', '八年级数学单元测', '五年级英语随堂测'],
+  student_issues: ['作文审题不准，文言文失分多', '计算错误多，压轴题思路不清', '阅读理解抓不住关键信息'],
+  evaluation_content: ['一篇五年级习作', '一份学生实验报告', '一次课堂展示记录'],
+  evaluation_criteria: ['重点看内容、结构和语言表达', '重点看任务完成度、思路和规范性'],
+  feedback_type: ['优点与建议', '量规评价', '评语'],
+  language_style: ['鼓励性', '客观型', '教师批注型'],
+  bot_role: ['初中语文阅读助教', '小学数学错题讲解助手', '英语口语陪练老师'],
+  theme_scope: ['阅读理解、作文训练和古诗文积累', '分层练习、错题复盘和方法点拨'],
+  response_style: ['启发式', '严谨清晰', '鼓励式'],
+  event_name: ['校园读书节', '消防安全宣传周', '科技节成果展'],
+  event_details: ['想写一段能发到家长群和公众号的活动文案', '需要把活动亮点、时间和参与方式写清楚'],
+  tone: ['正式宣传', '热情号召', '简洁海报文案'],
+  class_name: ['三年级2班', '七年级1班'],
+  time_range: ['第5周', '3月班级通讯'],
+  highlights: ['本周班级活动、学习重点和家长提醒', '最近的班级亮点和后续安排'],
+}
+
+const TOOL_SCENARIO_OVERRIDES = {
+  'parent-communication': [
+    '孩子最近课堂走神和作业拖延比较明显，帮我写一段发给家长的话，语气温和但要把问题说清楚。',
+    '想和家长沟通孩子最近阅读状态下滑的问题，最好给出可以在家配合的建议。',
+    '班里一个学生最近情绪波动大，想先和家长做一次比较柔和的沟通。',
+    '我要给家长发一段学习建议，重点讲作业习惯和复习节奏。'
+  ],
+  'student-support': [
+    '一个三年级学生课堂愿意参与，但作业总拖延，帮我做一份学困生辅导支持方案。',
+    '一个初一学生最近情绪起伏比较大，想做一份偏心理支持的个别化建议。',
+    '学生有表达欲，也愿意互动，但学习方法比较乱，帮我做成长规划方向的支持方案。',
+    '想给一个基础薄弱但愿意配合的学生做一份可执行的学习支持建议。'
+  ],
+  'student-comment': [
+    '给三年级学生小明写一段期末综合素质评语，优点是乐于帮助同学，改进点是作业质量还要提升。',
+    '帮我写一段更有温度的学生评语，适合五年级，既写优点也点出努力方向。',
+    '我想给一个课堂积极但有时粗心的学生写综合评语，语气鼓励一点。',
+    '帮我生成一段不空泛的学生评语，要像班主任真正会写的。'
+  ],
+}
+
+const buildPromptFromScenario = (tool, scenario) => {
+  const keys = tool.fields.filter((field) => !field.isAdvanced).map((field) => field.key)
+  const detailParts = []
+
+  if (scenario.grade_subject && keys.includes('grade_subject')) detailParts.push(scenario.grade_subject)
+  if (scenario.grade && keys.includes('grade')) detailParts.push(scenario.grade)
+  if (scenario.textbook_version && keys.includes('textbook_version')) detailParts.push(scenario.textbook_version)
+  if (scenario.unit_name && keys.includes('unit_name')) detailParts.push(scenario.unit_name)
+  if (scenario.topic && keys.includes('topic')) detailParts.push(scenario.topic)
+  if (scenario.lesson_topic && keys.includes('lesson_topic')) detailParts.push(scenario.lesson_topic)
+  if (scenario.project_topic && keys.includes('project_topic')) detailParts.push(scenario.project_topic)
+
+  const prefix = detailParts.length > 0 ? `${detailParts.join('，')}，` : ''
+
+  switch (tool.category) {
+    case '教学设计':
+      return `${prefix}帮我生成一份${tool.name}，${scenario.teaching_objectives || '希望目标清晰、课堂活动自然、能直接拿去用'}。`
+    case '教学内容':
+      return `${prefix}我想做一份${tool.name}，${scenario.teaching_objectives || '内容要贴近课堂使用，学生读起来不吃力'}。`
+    case '练习命题':
+      return `${prefix}帮我生成一份${tool.name}，${scenario.question_type || '题型尽量丰富'}，${scenario.difficulty || '难度适中'}。`
+    case '差异化教学':
+      return `${prefix}我想做一份${tool.name}，${scenario.student_situation || '要兼顾基础学生和需要拔高的学生'}。`
+    case '反馈评价':
+      if (keys.includes('student_name')) {
+        return `${scenario.grade || '三年级'}学生${scenario.student_name || '小明'}，优点是${scenario.strengths || '课堂积极'}，不足是${scenario.improvements || '作业质量还要提升'}，帮我生成一份${tool.name}。`
+      }
+      if (keys.includes('exam_name')) {
+        return `${scenario.exam_name || '一次单元测验'}，${scenario.student_issues || '学生在阅读和审题上问题比较集中'}，帮我生成一份${tool.name}。`
+      }
+      return `${prefix}帮我做一份${tool.name}，${scenario.evaluation_content || '我会提供待评价内容'}，${scenario.evaluation_criteria || '重点突出可操作建议'}。`
+    case '学生支持':
+      return `${scenario.grade || '三年级'}学生，${scenario.support_type || '学困生辅导'}方向，${scenario.student_strengths || '学生有一些积极表现'}，${scenario.student_situation || '目前学习和课堂状态需要支持'}，帮我做一份${tool.name}。`
+    case '沟通写作':
+      if (keys.includes('event_name')) {
+        return `${scenario.event_name || '校园活动'}，${scenario.event_details || '需要把活动亮点和参与方式写清楚'}，帮我生成一份${tool.name}。`
+      }
+      return `${scenario.audience || '家长'}沟通场景，${scenario.content || '我会先告诉你具体情况'}，帮我生成一份${tool.name}，${scenario.special_needs || '语气自然一点'}。`
+    case '课堂助手':
+      return `我想配置一个「${scenario.bot_role || tool.name}」，服务${scenario.grade_subject || '当前学段学生'}，围绕${scenario.theme_scope || '课堂答疑和方法点拨'}工作，回答风格${scenario.response_style || '清晰易懂'}。`
+    default:
+      return `${prefix}帮我生成一份${tool.name}，尽量贴近真实课堂场景。`
+  }
+}
+
+const buildToolScenarioPool = (tool) => {
+  if (TOOL_SCENARIO_OVERRIDES[tool.id]) {
+    return TOOL_SCENARIO_OVERRIDES[tool.id]
+  }
+
+  const presets = [
+    {
+      grade_subject: '五年级语文',
+      grade: '五年级',
+      textbook_version: '部编版',
+      topic: '《慈母情深》',
+      unit_name: '第六单元',
+      teaching_objectives: '想突出朗读体验和人物情感理解',
+      question_type: '阅读题为主',
+      difficulty: '难度适中',
+      student_situation: '学生能读懂内容，但表达比较浅',
+      student_strengths: '课堂愿意发言，也愿意配合任务',
+      exam_name: '五年级语文单元测',
+      student_issues: '阅读理解失分比较集中',
+      evaluation_content: '一篇五年级习作',
+      evaluation_criteria: '重点看内容具体和情感表达',
+      audience: '家长',
+      content: '最近孩子阅读状态不错，但书写和作业习惯还需要家校一起跟进',
+      special_needs: '语气温和、具体一点',
+      bot_role: '小学语文阅读助教',
+      theme_scope: '阅读理解、写作表达和课文预习',
+      response_style: '启发式',
+    },
+    {
+      grade_subject: '三年级数学',
+      grade: '三年级',
+      textbook_version: '人教版',
+      topic: '分数的初步认识',
+      unit_name: '分数单元',
+      teaching_objectives: '想让学生能结合操作活动理解概念',
+      question_type: '填空题和应用题混合',
+      difficulty: '基础+提升',
+      student_situation: '学生基础一般，容易把概念混淆',
+      student_strengths: '动手积极，愿意参与操作活动',
+      exam_name: '三年级数学随堂测',
+      student_issues: '概念理解还不稳，应用题容易出错',
+      evaluation_content: '一份数学学习单',
+      evaluation_criteria: '重点看概念理解和表达过程',
+      audience: '家长',
+      content: '想和家长沟通孩子最近数学概念掌握不稳的问题',
+      special_needs: '希望更像老师平时真实会说的话',
+      bot_role: '小学数学错题讲解助手',
+      theme_scope: '概念讲解、错题复盘和练习推荐',
+      response_style: '清晰易懂',
+    },
+    {
+      grade_subject: '初二物理',
+      grade: '初二',
+      textbook_version: '人教版',
+      topic: '光的反射',
+      unit_name: '光现象',
+      teaching_objectives: '希望把实验观察和规律总结讲清楚',
+      question_type: '简答题和实验题',
+      difficulty: '适中',
+      student_situation: '学生对现象有兴趣，但抽象归纳能力偏弱',
+      student_strengths: '实验参与度高，愿意表达观察结果',
+      exam_name: '八年级物理月考',
+      student_issues: '实验分析和作图题错误偏多',
+      evaluation_content: '一次实验报告',
+      evaluation_criteria: '重点看现象描述、结论和证据对应',
+      audience: '家长',
+      content: '想反馈孩子最近物理实验课表现和学习建议',
+      special_needs: '表达专业但不要太生硬',
+      bot_role: '初中物理实验助教',
+      theme_scope: '实验设计、现象解释和错题讲评',
+      response_style: '严谨清晰',
+    },
+    {
+      grade_subject: '高一英语',
+      grade: '高一',
+      textbook_version: '人教版',
+      topic: '环境保护主题阅读',
+      unit_name: '人与环境单元',
+      teaching_objectives: '想让学生在阅读中积累表达并能开口讨论',
+      question_type: '阅读题和表达题结合',
+      difficulty: '适中',
+      student_situation: '学生词汇量还可以，但口头表达不够主动',
+      student_strengths: '阅读速度不错，合作学习比较积极',
+      exam_name: '高一英语周测',
+      student_issues: '长难句理解和观点表达比较弱',
+      evaluation_content: '一份英语展示稿',
+      evaluation_criteria: '重点看表达完整度、语言准确度和逻辑',
+      audience: '家长',
+      content: '想沟通孩子英语学习中的阅读和表达问题',
+      special_needs: '语气真诚一点，别太模板化',
+      bot_role: '高中英语口语陪练助手',
+      theme_scope: '阅读理解、表达训练和课堂讨论支持',
+      response_style: '鼓励式',
+    },
+    {
+      grade_subject: '七年级历史',
+      grade: '初一',
+      textbook_version: '部编版',
+      topic: '秦统一中国',
+      unit_name: '中国古代史单元',
+      teaching_objectives: '希望学生能梳理事件背景、影响和历史意义',
+      question_type: '材料题和简答题',
+      difficulty: '适中',
+      student_situation: '学生记忆点多，但不会串联历史脉络',
+      student_strengths: '愿意讲故事，课堂参与感不错',
+      exam_name: '七年级历史单元测',
+      student_issues: '材料题提取信息不完整',
+      evaluation_content: '一份历史探究任务单',
+      evaluation_criteria: '重点看史实准确和表达逻辑',
+      audience: '家长',
+      content: '想沟通孩子历史学科目前的学习状态和改进方向',
+      special_needs: '想更具体一点，不要太空泛',
+      bot_role: '初中历史探究助教',
+      theme_scope: '史料阅读、知识梳理和课堂提问引导',
+      response_style: '结构化',
+    },
+  ]
+
+  return presets.map((scenario) => buildPromptFromScenario(tool, scenario))
+}
+
 const ToolDetailPage = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+  const usageTrackedRef = useRef('')
+  const streamingQueueRef = useRef('')
+  const renderedTextRef = useRef('')
+  const streamingTimerRef = useRef(null)
+  const resultPreviewRef = useRef(null)
 
   const [tool, setTool] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   
   // 新的交互状态
-  const [interactionPhase, setInteractionPhase] = useState('chat') // 'chat' | 'guiding' | 'result'
+  const [interactionPhase, setInteractionPhase] = useState('chat') // 'chat' | 'confirm' | 'guiding' | 'result'
   const [chatMessages, setChatMessages] = useState([])
   const [userInput, setUserInput] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -451,6 +839,8 @@ const ToolDetailPage = () => {
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0)
   const [formData, setFormData] = useState({})
   const [fieldAnswers, setFieldAnswers] = useState({})
+  const [seedSuggestions, setSeedSuggestions] = useState([])
+  const [lockedFieldKeys, setLockedFieldKeys] = useState([])
   
   // 高级选项状态
   const [showAdvancedTip, setShowAdvancedTip] = useState(false)
@@ -459,48 +849,138 @@ const ToolDetailPage = () => {
   // 生成结果状态
   const [result, setResult] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState('')
   const [showDownloadMenu, setShowDownloadMenu] = useState(false)
   const [lastSaved, setLastSaved] = useState(null)
   const [historyMode, setHistoryMode] = useState(false)
+  const [reviseModalOpen, setReviseModalOpen] = useState(false)
+  const [selectedBlockIndex, setSelectedBlockIndex] = useState(-1)
+  const [reviseTargetType, setReviseTargetType] = useState('block')
+  const [selectedSnippet, setSelectedSnippet] = useState('')
+  const [reviseInstruction, setReviseInstruction] = useState('')
+  const [isRevisingBlock, setIsRevisingBlock] = useState(false)
+  const [reviseError, setReviseError] = useState('')
+  const [reviseSuccess, setReviseSuccess] = useState('')
+  const [selectionToolbar, setSelectionToolbar] = useState(null)
+  const [selectionNotice, setSelectionNotice] = useState(null)
+  const [lastRevisionSnapshot, setLastRevisionSnapshot] = useState(null)
+  const [isUndoingRevision, setIsUndoingRevision] = useState(false)
 
   // 推荐问题列表
   const [suggestedQuestions, setSuggestedQuestions] = useState([])
 
+  const workflowContext = location.state?.workflowContext || null
+  const workflowStepIds = workflowContext?.stepIds || []
+  const currentWorkflowStepIndex = workflowStepIds.findIndex((stepId) => stepId === id)
+  const nextWorkflowStepId =
+    currentWorkflowStepIndex >= 0 && currentWorkflowStepIndex < workflowStepIds.length - 1
+      ? workflowStepIds[currentWorkflowStepIndex + 1]
+      : ''
+  const nextWorkflowTool = nextWorkflowStepId ? getToolById(nextWorkflowStepId) : null
+
+  useEffect(() => {
+    return () => {
+      if (streamingTimerRef.current) {
+        clearInterval(streamingTimerRef.current)
+        streamingTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const clearToolbar = () => setSelectionToolbar(null)
+    window.addEventListener('scroll', clearToolbar, true)
+    window.addEventListener('resize', clearToolbar)
+    return () => {
+      window.removeEventListener('scroll', clearToolbar, true)
+      window.removeEventListener('resize', clearToolbar)
+    }
+  }, [])
+
+  useEffect(() => {
+    setSelectionToolbar(null)
+    setSelectionNotice(null)
+    setSelectedSnippet('')
+    setReviseTargetType('block')
+  }, [result])
+
   // 加载工具数据
   useEffect(() => {
-    const toolData = getToolById(id)
-    if (toolData) {
+    let cancelled = false
+
+    const loadTool = async () => {
+      const toolData = getToolById(id)
+      if (!toolData) {
+        if (!cancelled) setIsLoading(false)
+        return
+      }
+
+      const workflowId = location.state?.workflowContext?.workflowId
+      if (workflowId) {
+        await syncWorkflowRunFromServer(workflowId)
+      }
+
+      if (cancelled) return
+
       setTool(toolData)
-      const initialData = {}
-      toolData.fields.forEach((field) => {
-        initialData[field.key] = field.default || (field.type === 'toggle' ? false : '')
-      })
+      const workflowPrefill = location.state?.workflowContext?.prefill || {}
+      const initialData = buildInitialFormData(toolData, workflowPrefill)
       setFormData(initialData)
 
       const historyItem = location.state?.historyItem
+      const workflowStepState = workflowId
+        ? getWorkflowRun(workflowId).steps?.[toolData.id]
+        : null
       if (historyItem && historyItem.templateId === toolData.id) {
         setHistoryMode(true)
         setFormData(historyItem.input || initialData)
         setFieldAnswers(historyItem.input || {})
-        setResult(historyItem.result || '')
+        setResult(sanitizeGeneratedResult(historyItem.result || ''))
+        setInteractionPhase('result')
+      } else if (workflowStepState?.result) {
+        const stepInput = workflowStepState.input || initialData
+        setHistoryMode(false)
+        setFormData({ ...initialData, ...stepInput })
+        setFieldAnswers(stepInput)
+        setResult(sanitizeGeneratedResult(workflowStepState.result || ''))
         setInteractionPhase('result')
       } else {
         setHistoryMode(false)
         setResult('')
         setInteractionPhase('chat')
         setChatMessages([])
-        setFieldAnswers({})
+        setFieldAnswers(workflowPrefill)
+        setSeedSuggestions([])
+        setLockedFieldKeys([])
         setCurrentFieldIndex(0)
         setShowAdvancedTip(false)
         setShowAdvancedForm(false)
       }
 
-      // 生成随机推荐问题
-      const questions = generateSuggestedQuestions(toolData)
-      setSuggestedQuestions(questions)
+      setSuggestedQuestions(generateSuggestedQuestions(toolData))
+      setIsLoading(false)
     }
-    setIsLoading(false)
+
+    loadTool()
+
+    return () => {
+      cancelled = true
+    }
   }, [id, location.state])
+
+  useEffect(() => {
+    if (!tool || usageTrackedRef.current === tool.id) return
+
+    usageTrackedRef.current = tool.id
+    fetch('/api/tool-usage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toolId: tool.id,
+        toolName: tool.name
+      })
+    }).catch(() => {})
+  }, [tool])
 
   // 滚动到底部
   useEffect(() => {
@@ -509,42 +989,21 @@ const ToolDetailPage = () => {
 
   // 生成推荐问题
   const generateSuggestedQuestions = (tool) => {
-    const templatesByTool = {
-      'lesson-plan': [
-        '给五年级语文生成一份《慈母情深》教案，加入朗读环节。',
-        '帮我做一份三年级数学《分数的初步认识》教案，想有操作活动。',
-        '给初二物理设计一节《光的反射》教案，最好有实验探究。',
-        '做一份高一英语阅读课教案，主题是环境保护。'
-      ],
-      'exercise-gen': [
-        '给初二数学出10道一元二次方程练习，要答案解析。',
-        '帮我做一份五年级语文《慈母情深》阅读检测，偏理解题。',
-        '给六年级数学出一组百分数应用题专项训练。',
-        '做一份高一英语课后作业，主题是健康生活。'
-      ],
-      'exam-review': [
-        '给初三语文月考试卷做一份讲评方案，作文和文言文失分多。',
-        '帮我设计一节八年级数学试卷讲评课，重点分析高频错题。',
-        '给五年级英语单元测验做讲评，学生阅读理解较弱。',
-        '做一份高二物理讲评方案，突出典型错误和解题思路。'
-      ],
-      'feedback-rubric': [
-        '帮我给这篇五年级作文做反馈，重点看内容和细节描写。',
-        '生成一份课堂观察反馈，面向授课教师，语气专业客观。',
-        '给七年级英语口语展示做一个量规。',
-        '帮我写一段鼓励性的作业反馈，面向学生本人。'
-      ]
-    }
+    const categoryTemplates = buildToolScenarioPool(tool)
+    const fieldDrivenTemplates = tool.fields
+      .filter((field) => !field.isAdvanced)
+      .map((field) => FIELD_PROMPT_BANK[field.key])
+      .filter(Boolean)
+      .flat()
 
-    const templates = templatesByTool[tool.id] || [
-      `帮我生成一份${tool.name}。`,
-      `我需要一份${tool.name}，我先告诉你主题和目标。`,
-      `请根据我的教学场景，帮我设计${tool.name}。`,
-      `我想做一个更贴近课堂实际的${tool.name}。`,
+    const genericTemplates = [
+      `想做一份更贴近真实课堂的${tool.name}，我会先告诉你年级、主题和场景。`,
+      `请按中国学校的真实教学场景，帮我生成一份可直接使用的${tool.name}。`,
     ]
-    // 随机返回2-3个
-    const shuffled = [...templates].sort(() => Math.random() - 0.5)
-    return shuffled.slice(0, 4)
+
+    const templates = [...categoryTemplates, ...genericTemplates, ...fieldDrivenTemplates.map((item) => `围绕「${item}」这个场景，帮我生成一份${tool.name}。`)]
+    const deduped = templates.filter((item, index) => templates.indexOf(item) === index)
+    return shuffleList(deduped).slice(0, 4)
   }
 
   const getFriendlyQuestion = (field) => {
@@ -625,6 +1084,80 @@ const ToolDetailPage = () => {
       .filter(Boolean)
   }
 
+  const getHardConstraintDefaults = (tool) =>
+    tool.fields
+      .filter((field) => ['grade_subject', 'grade', 'topic', 'unit_name', 'project_topic', 'lesson_topic', 'textbook_version'].includes(field.key))
+      .map((field) => field.key)
+
+  const continueFromConfirm = () => {
+    const mergedAdvancedFields = tool.fields.filter((field) => field.isAdvanced)
+    const filteredRequiredFields = buildRequiredFieldQueue(
+      tool,
+      [],
+      fieldAnswers,
+      formData,
+      fieldAnswers
+    )
+
+    setRequiredFields(filteredRequiredFields)
+    setAdvancedFields(mergedAdvancedFields)
+    setInteractionPhase('guiding')
+    setCurrentFieldIndex(0)
+
+    if (filteredRequiredFields.length === 0) {
+      if (mergedAdvancedFields.length > 0) {
+        setShowAdvancedTip(true)
+      } else {
+        setInteractionPhase('result')
+        setTimeout(() => handleGenerate(), 0)
+      }
+    } else {
+      setShowAdvancedTip(false)
+    }
+  }
+
+  const persistWorkflowStep = (nextFields, nextResult = '') => {
+    if (!workflowContext?.workflowId) return null
+
+    return updateWorkflowRun(workflowContext.workflowId, (current) => ({
+      ...current,
+      fields: {
+        ...(current.fields || {}),
+        ...nextFields,
+      },
+      steps: {
+        ...(current.steps || {}),
+        [tool.id]: {
+          completedAt: new Date().toISOString(),
+          input: nextFields,
+          result: nextResult || current.steps?.[tool.id]?.result || '',
+        },
+      },
+    }))
+  }
+
+  const openNextWorkflowStep = () => {
+    if (!workflowContext?.workflowId || !nextWorkflowTool) return
+
+    const workflowRun = getWorkflowRun(workflowContext.workflowId)
+    const prefill = {}
+    nextWorkflowTool.fields.forEach((field) => {
+      const value = workflowRun.fields?.[field.key]
+      if (value !== undefined && value !== null && value !== '') {
+        prefill[field.key] = value
+      }
+    })
+
+    navigate(`/tool/${nextWorkflowTool.id}`, {
+      state: {
+        workflowContext: {
+          ...workflowContext,
+          prefill,
+        },
+      },
+    })
+  }
+
   // 发送消息
   const handleSendMessage = async () => {
     if (!userInput.trim()) return
@@ -634,14 +1167,13 @@ const ToolDetailPage = () => {
 
     // 新一轮自然语言分析前，清空上一次引导状态，避免把旧识别结果误判成这次也已填写
     if (!historyMode) {
-      const resetData = {}
-      tool.fields.forEach((field) => {
-        resetData[field.key] = field.default || (field.type === 'toggle' ? false : '')
-      })
+      const resetData = buildInitialFormData(tool, workflowContext?.prefill || {})
       setFormData(resetData)
-      setFieldAnswers({})
+      setFieldAnswers(workflowContext?.prefill || {})
       setRequiredFields([])
       setAdvancedFields([])
+      setSeedSuggestions([])
+      setLockedFieldKeys([])
       setCurrentFieldIndex(0)
       setShowAdvancedTip(false)
       setShowAdvancedForm(false)
@@ -655,47 +1187,22 @@ const ToolDetailPage = () => {
     setIsAnalyzing(true)
     
     try {
-      // 调用AI分析
-      const analysisResult = await analyzeUserInput(message)
+      const seedResult = await analyzeToolSeed(message)
       
       // 添加AI回复
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: analysisResult.message 
+        content: seedResult.message || '我先帮你锁定了基础信息。'
       }])
       
-      const recognized = analysisResult.recognized || {}
-      const mergedAdvancedFields = tool.fields.filter(f => f.isAdvanced)
-      const filteredRequiredFields = buildRequiredFieldQueue(
-        tool,
-        analysisResult.requiredFields || [],
-        recognized,
-        formData,
-        fieldAnswers
-      )
-
-      // 设置需要收集的字段
-      setRequiredFields(filteredRequiredFields)
-      setAdvancedFields(analysisResult.advancedFields?.length ? analysisResult.advancedFields : mergedAdvancedFields)
-
-      // 直接进入引导阶段
-      setInteractionPhase('guiding')
-      setCurrentFieldIndex(0)
+      const recognized = seedResult.recognized || {}
       setFieldAnswers(prev => ({ ...prev, ...recognized }))
       setFormData(prev => ({ ...prev, ...recognized }))
-      if (filteredRequiredFields.length === 0) {
-        if (mergedAdvancedFields.length > 0) {
-          setShowAdvancedTip(true)
-        } else {
-          setInteractionPhase('result')
-          setTimeout(() => handleGenerate(), 0)
-        }
-      } else {
-        setShowAdvancedTip(false)
-      }
+      setSeedSuggestions(Array.isArray(seedResult.suggestions) ? seedResult.suggestions : [])
+      setLockedFieldKeys(seedResult.hardFieldKeys?.length ? seedResult.hardFieldKeys : getHardConstraintDefaults(tool))
+      setInteractionPhase('confirm')
       setShowAdvancedForm(false)
       setIsAnalyzing(false)
-      inputRef.current?.focus()
 
     } catch (error) {
       setChatMessages(prev => [...prev, { 
@@ -705,6 +1212,23 @@ const ToolDetailPage = () => {
     }
     
     setIsAnalyzing(false)
+  }
+
+  const analyzeToolSeed = async (message) => {
+    const response = await fetch('/api/tools/seed-analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toolId: tool.id,
+        message
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('分析失败')
+    }
+
+    return response.json()
   }
 
   // AI分析用户输入
@@ -809,10 +1333,55 @@ const ToolDetailPage = () => {
     handleGenerate()
   }
 
+  const stopStreamingRender = () => {
+    if (streamingTimerRef.current) {
+      clearInterval(streamingTimerRef.current)
+      streamingTimerRef.current = null
+    }
+  }
+
+  const flushStreamingRender = () => {
+    if (!streamingQueueRef.current) {
+      return
+    }
+    renderedTextRef.current += streamingQueueRef.current
+    streamingQueueRef.current = ''
+    setResult(sanitizeGeneratedResult(renderedTextRef.current))
+  }
+
+  const ensureStreamingRender = () => {
+    if (streamingTimerRef.current) return
+
+    streamingTimerRef.current = setInterval(() => {
+      if (!streamingQueueRef.current) {
+        return
+      }
+
+      const nextChunk = streamingQueueRef.current.slice(0, 8)
+      streamingQueueRef.current = streamingQueueRef.current.slice(8)
+      renderedTextRef.current += nextChunk
+      setResult(sanitizeGeneratedResult(renderedTextRef.current))
+
+      if (!streamingQueueRef.current && !isGenerating) {
+        stopStreamingRender()
+      }
+    }, 24)
+  }
+
+  const appendStreamingContent = (content) => {
+    if (!content) return
+    streamingQueueRef.current += content
+    ensureStreamingRender()
+  }
+
   // 生成内容
   const handleGenerate = async () => {
     setIsGenerating(true)
     setResult('')
+    setGenerateError('')
+    stopStreamingRender()
+    streamingQueueRef.current = ''
+    renderedTextRef.current = ''
 
     try {
       const response = await fetch('/api/tools/generate', {
@@ -824,18 +1393,26 @@ const ToolDetailPage = () => {
         })
       })
 
-      if (!response.ok) throw new Error('请求失败')
+      if (!response.ok) {
+        let message = '生成失败，请稍后重试。'
+        try {
+          const errorBody = await response.json()
+          message = errorBody?.message || errorBody?.error || message
+        } catch {}
+        throw new Error(message)
+      }
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let generatedText = ''
+      let pending = ''
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        const chunk = decoder.decode(value || new Uint8Array(), { stream: !done })
+        pending += chunk
+        const lines = pending.split('\n')
+        pending = lines.pop() || ''
 
         for (const line of lines) {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
@@ -844,21 +1421,46 @@ const ToolDetailPage = () => {
               const content = data.choices?.[0]?.delta?.content
               if (content) {
                 generatedText += content
-                setResult(sanitizeGeneratedResult(generatedText))
+                appendStreamingContent(content)
               }
             } catch (e) {}
           }
         }
+
+        if (done) {
+          if (pending.startsWith('data: ') && pending !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(pending.slice(6))
+              const content = data.choices?.[0]?.delta?.content
+              if (content) {
+                generatedText += content
+                appendStreamingContent(content)
+              }
+            } catch (e) {}
+          }
+          break
+        }
       }
 
+      flushStreamingRender()
+      const finalResult = sanitizeGeneratedResult(generatedText)
+      renderedTextRef.current = finalResult
+      setResult(finalResult)
+      persistWorkflowStep(formData, finalResult)
+
       // 保存到历史
-      saveToHistory(formData, generatedText)
+      saveToHistory(formData, finalResult)
 
     } catch (error) {
       console.error('生成失败:', error)
+      stopStreamingRender()
+      setGenerateError(error?.message || '生成失败，请稍后重试。')
     }
 
     setIsGenerating(false)
+    if (!streamingQueueRef.current) {
+      stopStreamingRender()
+    }
   }
 
   // 保存到历史
@@ -903,6 +1505,205 @@ const ToolDetailPage = () => {
     if (!result) return
     downloadFile(`${tool.name}.html`, buildExportHtml(tool.name, result), 'text/html;charset=utf-8')
     setShowDownloadMenu(false)
+  }
+
+  const resultBlocks = splitResultBlocks(result)
+
+  const clearTextSelection = () => {
+    if (typeof window === 'undefined') return
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+  }
+
+  const openReviseModal = (blockIndex, snippet = '') => {
+    setSelectedBlockIndex(blockIndex)
+    setReviseTargetType(snippet ? 'selection' : 'block')
+    setSelectedSnippet(snippet)
+    setReviseInstruction('')
+    setReviseError('')
+    setReviseSuccess('')
+    setSelectionToolbar(null)
+    setReviseModalOpen(true)
+  }
+
+  const closeReviseModal = () => {
+    if (isRevisingBlock) return
+    setReviseModalOpen(false)
+    setSelectedBlockIndex(-1)
+    setReviseTargetType('block')
+    setSelectedSnippet('')
+    setReviseInstruction('')
+    setReviseError('')
+  }
+
+  const getBlockIndexFromNode = (node) => {
+    let current = node
+    while (current) {
+      if (current.nodeType === Node.ELEMENT_NODE) {
+        const blockElement = current.closest?.('[data-result-block-index]')
+        if (blockElement) {
+          const index = Number(blockElement.getAttribute('data-result-block-index'))
+          return Number.isNaN(index) ? -1 : index
+        }
+      }
+      current = current.parentNode
+    }
+    return -1
+  }
+
+  const updateSelectionToolbar = () => {
+    if (!resultPreviewRef.current) return
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setSelectionToolbar(null)
+      setSelectionNotice(null)
+      return
+    }
+
+    const text = selection.toString().trim()
+    if (text.length < 2) {
+      setSelectionToolbar(null)
+      setSelectionNotice(null)
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    const commonAncestor = range.commonAncestorContainer
+    if (!resultPreviewRef.current.contains(commonAncestor)) {
+      setSelectionToolbar(null)
+      setSelectionNotice(null)
+      return
+    }
+
+    const startIndex = getBlockIndexFromNode(range.startContainer)
+    const endIndex = getBlockIndexFromNode(range.endContainer)
+    const rect = range.getBoundingClientRect()
+    if (startIndex < 0 || endIndex < 0 || startIndex !== endIndex) {
+      setSelectionToolbar(null)
+      setSelectionNotice({
+        message: '当前只支持在同一段内改写，请缩小到单段内容再试。',
+        top: Math.max(rect.top - 52, 16),
+        left: clamp(rect.left + rect.width / 2, 180, window.innerWidth - 180),
+      })
+      return
+    }
+
+    if (!rect.width && !rect.height) {
+      setSelectionToolbar(null)
+      setSelectionNotice(null)
+      return
+    }
+
+    setSelectionNotice(null)
+    setSelectionToolbar({
+      text,
+      blockIndex: startIndex,
+      top: Math.max(rect.top - 52, 16),
+      left: clamp(rect.left + rect.width / 2, 120, window.innerWidth - 120),
+    })
+  }
+
+  const handleResultMouseUp = () => {
+    window.setTimeout(updateSelectionToolbar, 0)
+  }
+
+  const handleResultKeyUp = () => {
+    window.setTimeout(updateSelectionToolbar, 0)
+  }
+
+  const handleUndoLastRevision = async () => {
+    if (!lastRevisionSnapshot || isUndoingRevision) return
+
+    setIsUndoingRevision(true)
+    setReviseError('')
+    try {
+      setResult(lastRevisionSnapshot.result)
+      persistWorkflowStep(formData, lastRevisionSnapshot.result)
+      saveToHistory(formData, lastRevisionSnapshot.result)
+      setReviseSuccess('已撤销上一次局部改写')
+      setSelectionToolbar(null)
+      setSelectionNotice(null)
+      clearTextSelection()
+      setLastRevisionSnapshot(null)
+    } catch (error) {
+      setReviseError(error?.message || '撤销失败，请稍后重试。')
+    } finally {
+      setIsUndoingRevision(false)
+    }
+  }
+
+  const submitRevision = async (instructionText, options = {}) => {
+    const targetIndex = options.blockIndex ?? selectedBlockIndex
+    const targetSnippet = options.selectedSnippet ?? selectedSnippet
+    const targetBlock = resultBlocks[targetIndex]
+    if (!targetBlock || !instructionText.trim()) return
+
+    const instruction = targetSnippet
+      ? `请只改写这一段中的这部分内容：“${targetSnippet}”。${instructionText.trim()}。请保持这段其他内容不变，并直接输出更新后的完整这一段。`
+      : instructionText.trim()
+
+    setIsRevisingBlock(true)
+    setReviseError('')
+
+    try {
+      const response = await fetch('/api/tools/revise-block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolId: tool.id,
+          formData,
+          fullContent: result,
+          selectedBlock: targetBlock.content,
+          instruction
+        })
+      })
+
+      if (!response.ok) {
+        let message = '局部改写失败，请稍后重试。'
+        try {
+          const errorBody = await response.json()
+          message = errorBody?.message || errorBody?.error || message
+        } catch {}
+        throw new Error(message)
+      }
+
+      const data = await response.json()
+      const revisedBlock = sanitizeGeneratedResult(data?.revisedBlock || '')
+      if (!revisedBlock) {
+        throw new Error('改写结果为空，请重新尝试。')
+      }
+
+      setLastRevisionSnapshot({
+        result,
+        blockIndex: targetIndex,
+        selectedSnippet: targetSnippet,
+      })
+      const nextBlocks = [...resultBlocks]
+      nextBlocks[targetIndex] = {
+        ...nextBlocks[targetIndex],
+        content: revisedBlock
+      }
+      const nextResult = sanitizeGeneratedResult(nextBlocks.map((block) => block.content).join('\n\n'))
+      setResult(nextResult)
+      persistWorkflowStep(formData, nextResult)
+      saveToHistory(formData, nextResult)
+      setReviseSuccess(targetSnippet ? '选中的内容已经更新' : '这一段已经更新')
+      clearTextSelection()
+      setSelectionToolbar(null)
+      if (options.keepModalOpen) {
+        setReviseInstruction('')
+      } else {
+        closeReviseModal()
+      }
+    } catch (error) {
+      setReviseError(error?.message || '局部改写失败，请稍后重试。')
+    } finally {
+      setIsRevisingBlock(false)
+    }
+  }
+
+  const handleReviseBlock = async () => {
+    await submitRevision(reviseInstruction)
   }
 
   // 早期返回：加载状态
@@ -999,6 +1800,64 @@ const ToolDetailPage = () => {
       )}
     </div>
   )
+
+  const renderConfirmPhase = () => {
+    const lockedFields = tool.fields.filter((field) => lockedFieldKeys.includes(field.key))
+
+    return (
+      <div className="px-6 py-6 pb-24 md:pb-6">
+        <div className="rounded-3xl border border-blue-100 bg-white p-6">
+          <div className="mb-2 text-lg font-semibold text-slate-900">确认 AI 预填信息</div>
+          <p className="mb-5 text-sm text-slate-500">先锁定硬约束，再从 AI 建议里挑选更合适的软建议。</p>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {lockedFields.map((field) => (
+              <div key={field.key}>
+                <label className="mb-2 block text-sm font-medium text-slate-700">{field.label}</label>
+                <input
+                  value={formData[field.key] || ''}
+                  onChange={(e) => {
+                    setFormData((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    setFieldAnswers((prev) => ({ ...prev, [field.key]: e.target.value }))
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
+            ))}
+          </div>
+
+          {seedSuggestions.length > 0 && (
+            <div className="mt-5">
+              <div className="mb-2 text-sm font-medium text-slate-700">AI 软建议</div>
+              <div className="flex flex-wrap gap-2">
+                {seedSuggestions.map((suggestion, index) => (
+                  <button
+                    key={`${suggestion.fieldKey}-${index}`}
+                    onClick={() => {
+                      setFormData((prev) => ({ ...prev, [suggestion.fieldKey]: suggestion.value }))
+                      setFieldAnswers((prev) => ({ ...prev, [suggestion.fieldKey]: suggestion.value }))
+                    }}
+                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-600"
+                  >
+                    {suggestion.label || suggestion.fieldKey}：{suggestion.value}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={continueFromConfirm}
+              className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-medium text-white"
+            >
+              继续生成
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // 渲染引导式填写界面
   const renderGuidingPhase = () => {
@@ -1197,12 +2056,12 @@ const ToolDetailPage = () => {
             </div>
 
             {/* 补充信息提醒 */}
-            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6">
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
               <div className="relative">
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0">
-                    <div className="w-12 h-12 bg-blue-50 rounded-3xl flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-blue-500" />
+                    <div className="w-12 h-12 bg-slate-100 rounded-3xl flex items-center justify-center">
+                      <Sparkles className="w-5 h-5 text-slate-500" />
                     </div>
                   </div>
                   <div className="flex-1">
@@ -1216,19 +2075,19 @@ const ToolDetailPage = () => {
                     {/* 提示点 */}
                     <div className="grid grid-cols-2 gap-2 mb-5">
                       <div className="flex items-center gap-2 text-xs text-slate-600">
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
+                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full" />
                         <span>更符合教学场景</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-600">
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
+                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full" />
                         <span>更精准的内容定位</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-600">
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
+                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full" />
                         <span>更适合学生水平</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-600">
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
+                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full" />
                         <span>更多细节支持</span>
                       </div>
                     </div>
@@ -1237,10 +2096,10 @@ const ToolDetailPage = () => {
                     <div className="flex gap-3">
                       <button
                         onClick={handleShowAdvanced}
-                        className="flex-1 px-5 py-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-3xl text-sm font-medium transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
+                        className="flex-1 px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-3xl text-sm font-medium transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                       >
                         <Settings className="w-4 h-4" />
-                        补充信息
+                        继续补充
                       </button>
                       <button
                         onClick={handleSkipAdvanced}
@@ -1390,9 +2249,101 @@ const ToolDetailPage = () => {
             </div>
           </div>
           
-          <div className="result-preview">
-            <div dangerouslySetInnerHTML={{ __html: markdownToHtml(result) }} />
+          <div
+            ref={resultPreviewRef}
+            className="result-preview"
+            onMouseUp={handleResultMouseUp}
+            onKeyUp={handleResultKeyUp}
+          >
+            {reviseSuccess && (
+              <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 md:flex-row md:items-center md:justify-between">
+                <span>{reviseSuccess}</span>
+                {lastRevisionSnapshot && (
+                  <button
+                    onClick={handleUndoLastRevision}
+                    disabled={isUndoingRevision}
+                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isUndoingRevision ? '撤销中...' : '撤销上一次改写'}
+                  </button>
+                )}
+              </div>
+            )}
+            {selectionToolbar && (
+              <div
+                className="fixed z-40 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-xl"
+                style={{
+                  top: `${selectionToolbar.top}px`,
+                  left: `${selectionToolbar.left}px`,
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                <button
+                  onClick={() => openReviseModal(selectionToolbar.blockIndex, selectionToolbar.text)}
+                  className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-medium text-blue-600 shadow-sm hover:bg-blue-50"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  优化这段
+                </button>
+              </div>
+            )}
+            {selectionNotice && (
+              <div
+                className="fixed z-40 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700 shadow-lg"
+                style={{
+                  top: `${selectionNotice.top}px`,
+                  left: `${selectionNotice.left}px`,
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                {selectionNotice.message}
+              </div>
+            )}
+            <div className="space-y-5">
+              {resultBlocks.map((block, index) => (
+                <div
+                  key={block.id}
+                  data-result-block-index={index}
+                  className="group relative rounded-2xl transition-colors hover:bg-blue-50/20"
+                >
+                  <div
+                    className="px-1"
+                    dangerouslySetInnerHTML={{ __html: markdownToHtml(block.content) }}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
+
+          {workflowContext?.workflowId && (
+            <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-medium text-slate-900">当前步骤已保存到工作流</div>
+                  <div className="mt-1 text-sm text-slate-500">
+                    {nextWorkflowTool ? `可以继续进入下一步：${nextWorkflowTool.name}` : '这条工作流已经完成，可以回到流程页查看整体进度。'}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    onClick={() => navigate(`/workflows/${workflowContext.workflowId}`)}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"
+                  >
+                    返回工作流
+                  </button>
+                  {nextWorkflowTool && (
+                    <button
+                      onClick={openNextWorkflowStep}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-medium text-white"
+                    >
+                      下一步
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <div className="flex flex-col items-center justify-center h-[400px]">
@@ -1401,6 +2352,20 @@ const ToolDetailPage = () => {
               <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-3" />
               <p className="text-sm text-slate-500">正在生成内容...</p>
             </>
+          ) : generateError ? (
+            <div className="max-w-md text-center">
+              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center">
+                <span className="text-red-500 text-xl">!</span>
+              </div>
+              <p className="text-sm font-medium text-red-600 mb-2">生成失败</p>
+              <p className="text-sm text-slate-500 mb-4">{generateError}</p>
+              <button
+                onClick={handleGenerate}
+                className="px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl text-sm font-medium transition-colors"
+              >
+                重新生成
+              </button>
+            </div>
           ) : (
             <>
               <Sparkles className="w-12 h-12 text-blue-300 mb-3" />
@@ -1417,16 +2382,24 @@ const ToolDetailPage = () => {
       {/* 顶部导航 */}
       <div className="bg-white border-b border-slate-100 sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4">
             <button
               onClick={() => navigate(-1)}
-              className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors"
+              className="flex items-center gap-2 pt-1 text-sm text-slate-600 hover:text-slate-900 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
               返回
             </button>
-            <h1 className="text-base font-semibold text-slate-900">{tool.name}</h1>
-            <div className="w-16" />
+            <div className="min-w-0 text-center">
+              {workflowContext?.workflowName && (
+                <div className="mb-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  {workflowContext.workflowName}
+                </div>
+              )}
+              <h1 className="text-base font-semibold text-slate-900">{tool.name}</h1>
+            </div>
+            <div className="w-16 shrink-0" />
           </div>
         </div>
       </div>
@@ -1434,11 +2407,93 @@ const ToolDetailPage = () => {
       {/* 主内容区 */}
       <div className="max-w-4xl mx-auto px-4 py-6">
         <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+          {workflowContext?.workflowName && (
+            <div className="border-b border-blue-100 bg-blue-50/70 px-6 py-4">
+              <div className="flex flex-col gap-1 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
+                <div>
+                  正在执行工作流「{workflowContext.workflowName}」
+                </div>
+                <div className="text-xs text-blue-600">
+                  步骤 {Math.max(currentWorkflowStepIndex + 1, 1)} / {workflowStepIds.length || 1}
+                </div>
+              </div>
+            </div>
+          )}
           {interactionPhase === 'chat' && renderChatPhase()}
+          {interactionPhase === 'confirm' && renderConfirmPhase()}
           {interactionPhase === 'guiding' && renderGuidingPhase()}
           {interactionPhase === 'result' && renderResultPhase()}
         </div>
       </div>
+
+      {reviseModalOpen && selectedBlockIndex >= 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h4 className="text-lg font-semibold text-slate-900">
+                  {selectedSnippet ? '优化选中的内容' : '优化这一段'}
+                </h4>
+                <p className="text-sm text-slate-500 mt-1">
+                  {selectedSnippet
+                    ? '告诉我你想怎么改这段选中文本，我会尽量只动这部分，并保持所在段落其他内容稳定。'
+                    : '告诉我这一段你想怎么调整，我只改这一段，其他内容不动。'}
+                </p>
+              </div>
+              <button
+                onClick={closeReviseModal}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 mb-4 max-h-48 overflow-auto">
+              {selectedSnippet ? (
+                <div className="text-sm text-slate-700 whitespace-pre-wrap">{selectedSnippet}</div>
+              ) : (
+                <div
+                  className="text-sm text-slate-700"
+                  dangerouslySetInnerHTML={{ __html: markdownToHtml(resultBlocks[selectedBlockIndex]?.content || '') }}
+                />
+              )}
+            </div>
+
+            <textarea
+              value={reviseInstruction}
+              onChange={(e) => setReviseInstruction(e.target.value)}
+              placeholder={
+                selectedSnippet
+                  ? '比如：把这句改得更像老师课堂表达；更适合三年级学生理解；保留原意但更生动。'
+                  : '比如：这段再简单一点，更适合初二学生理解；加一个更贴近课堂的例子。'
+              }
+              rows={4}
+              className="w-full px-4 py-3 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 resize-none"
+            />
+
+            {reviseError && (
+              <p className="mt-3 text-sm text-red-500">{reviseError}</p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={closeReviseModal}
+                className="px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleReviseBlock}
+                disabled={!reviseInstruction.trim() || isRevisingBlock}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-500 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isRevisingBlock ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {selectedSnippet ? '确认优化选中内容' : '确认优化'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

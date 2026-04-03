@@ -1,11 +1,12 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Home, Grid, Clock, User } from 'lucide-react'
+import { Home, Grid, Clock, User, GitBranch } from 'lucide-react'
 
 const Layout = ({ children }) => {
   const navItems = [
     { to: '/', icon: Home, label: '首页', end: true },
     { to: '/tools', icon: Grid, label: '工具库' },
+    { to: '/workflows', icon: GitBranch, label: '工作流' },
     { to: '/history', icon: Clock, label: '历史' },
     { to: '/profile', icon: User, label: '我的' }
   ]
@@ -20,7 +21,7 @@ const Layout = ({ children }) => {
             </div>
             <div>
               <div className="text-lg font-semibold text-slate-900">AI备课工作台</div>
-              <div className="text-sm text-slate-500">老师常用教学工具库</div>
+              <div className="text-sm text-slate-500">教学工作台</div>
             </div>
           </NavLink>
 

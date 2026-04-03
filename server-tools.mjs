@@ -50,10 +50,12 @@ export const mainTasks = [
     description: '教案、说课稿、单元设计',
     icon: 'BookOpen',
     tools: [
-      { id: 'lesson-plan', name: '常规教案', desc: '日常备课与公开课设计' },
-      { id: 'pe-lesson-plan', name: '体育教案', desc: '热身·技能训练·安全提示' },
-      { id: 'lesson-5e', name: '探究教案', desc: '导入·探究·建构·迁移·评价' },
-      { id: 'unit-plan', name: '单元整体设计', desc: '课时安排与目标梯度' },
+      { id: 'lesson-plan', name: '教案设计', desc: '日常备课与公开课设计' },
+      { id: 'pe-lesson-plan', name: '体育课时教案', desc: '热身·技能训练·安全提示' },
+      { id: 'lesson-5e', name: '5E 探究式教案', desc: '参与·探究·解释·迁移·评价' },
+      { id: 'unit-plan', name: '单元整体教学设计', desc: '课时安排与目标梯度' },
+      { id: 'unit-learning-plan', name: '大单元学历案生成', desc: '符合新课标的标准学历案' },
+      { id: 'core-literacy-breakdown', name: '新课标核心素养目标拆解', desc: '课题一键拆成素养目标' },
       { id: 'lesson-talk', name: '说课稿', desc: '教材分析·学情·设计思路' }
     ]
   },
@@ -63,10 +65,11 @@ export const mainTasks = [
     description: '练习、作业、试卷讲评',
     icon: 'ClipboardList',
     tools: [
-      { id: 'exercise-gen', name: '练习与检测', desc: '随堂练习·测验·讲评' },
-      { id: 'layered-homework', name: '分层作业', desc: '必做+选做+拓展' },
-      { id: 'text-scaffold', name: '分层支架', desc: '改写·支架·拓展任务' },
-      { id: 'exam-review', name: '试卷讲评', desc: '错因分析·讲评流程' }
+      { id: 'exercise-gen', name: '随堂练习与检测', desc: '随堂练习·测验·讲评' },
+      { id: 'layered-homework', name: '分层作业设计', desc: '必做+选做+拓展' },
+      { id: 'double-reduction-homework', name: '双减合规分层作业', desc: '控量·分层·学校检查适用' },
+      { id: 'text-scaffold', name: '差异化学习支架设计', desc: '改写·支架·拓展任务' },
+      { id: 'exam-review', name: '试卷讲评课设计', desc: '错因分析·讲评流程' }
     ]
   },
   {
@@ -75,10 +78,10 @@ export const mainTasks = [
     description: '试卷讲评、评语、量规',
     icon: 'MessageSquare',
     tools: [
-      { id: 'exam-review', name: '试卷讲评', desc: '错因分析·讲评流程' },
-      { id: 'feedback-rubric', name: '反馈与量规', desc: '评语·量规·课堂观察' },
-      { id: 'student-comment', name: '学生评语', desc: '期末评语·成长记录' },
-      { id: 'classroom-observation', name: '听评课反馈', desc: '教研记录·改进建议' }
+      { id: 'exam-review', name: '试卷讲评课设计', desc: '错因分析·讲评流程' },
+      { id: 'feedback-rubric', name: '评价反馈与量规设计', desc: '评语·量规·课堂观察' },
+      { id: 'student-comment', name: '学生综合素质评语', desc: '期末评语·成长记录' },
+      { id: 'classroom-observation', name: '听评课记录与反馈', desc: '教研记录·改进建议' }
     ]
   },
   {
@@ -87,10 +90,10 @@ export const mainTasks = [
     description: '班会、家校沟通、学生支持',
     icon: 'Users',
     tools: [
-      { id: 'class-meeting', name: '主题班会', desc: '德育主题·活动流程' },
-      { id: 'parent-communication', name: '家校沟通', desc: '通知·家长信' },
-      { id: 'professional-email', name: '正式沟通', desc: '通知·回复·说明' },
-      { id: 'student-support', name: '学生支持', desc: '学困生辅导·心理疏导' }
+      { id: 'class-meeting', name: '主题班会设计', desc: '德育主题·活动流程' },
+      { id: 'parent-communication', name: '家校沟通话术', desc: '通知·家长信' },
+      { id: 'professional-email', name: '校园正式公文写作', desc: '通知·回复·说明' },
+      { id: 'student-support', name: '学生个性化学习支持', desc: '学困生辅导·心理疏导' }
     ]
   }
 ]
@@ -99,7 +102,7 @@ export const mainTasks = [
 const baseTools = [
   {
     id: 'lesson-plan',
-    name: '教案生成',
+    name: '教案设计',
     description: '根据课题与教学目标，一键生成结构完整、可直接使用的教案',
     category: '教学设计',
     icon: 'BookOpen',
@@ -122,7 +125,7 @@ const baseTools = [
   },
   {
     id: 'pe-lesson-plan',
-    name: '体育教案',
+    name: '体育课时教案',
     description: '面向中国学校体育课堂生成可直接使用的体育课教案',
     category: '教学设计',
     icon: 'BookOpen',
@@ -139,7 +142,7 @@ const baseTools = [
   },
   {
     id: 'lesson-5e',
-    name: '探究教案',
+    name: '5E 探究式教案',
     description: '基于5E教学模式（导入·探究·建构·迁移·评价）设计教案',
     category: '教学设计',
     icon: 'BookOpen',
@@ -159,7 +162,7 @@ const baseTools = [
   },
   {
     id: 'unit-plan',
-    name: '单元整体设计',
+    name: '单元整体教学设计',
     description: '生成单元整体教学设计，包含课时安排与目标梯度',
     category: '教学设计',
     icon: 'BookOpen',
@@ -189,8 +192,38 @@ const baseTools = [
     ]
   },
   {
+    id: 'unit-learning-plan',
+    name: '大单元学历案生成',
+    description: '面向中国学校场景，一键生成符合新课标要求、可上交的大单元学历案',
+    category: '教学设计',
+    icon: 'BookOpen',
+    fields: [
+      { key: 'grade_subject', label: '年级和学科', type: 'select', options: GRADE_SUBJECT_OPTIONS, required: true, isAdvanced: false },
+      { key: 'textbook_version', label: '教材版本', type: 'select', options: ['部编版', '人教版'], required: true, isAdvanced: false },
+      { key: 'unit_name', label: '单元名称', type: 'text', placeholder: '例如：三年级上册第一单元 / 光现象 / 分数的初步认识', required: true, isAdvanced: false },
+      { key: 'unit_hours', label: '单元课时', type: 'select', options: ['2课时', '4课时', '6课时', '8课时', '10课时及以上'], required: true, isAdvanced: false },
+      { key: 'student_situation', label: '学情', type: 'select', options: ['基础薄弱', '中等', '较好'], required: true, isAdvanced: false },
+      { key: 'unit_goals', label: '单元核心目标', type: 'textarea', placeholder: '例如：围绕单元主题落实核心素养，帮助学生掌握关键知识、学习方法与表达能力', isAdvanced: false },
+      { key: 'need_layered_homework', label: '需要分层作业', type: 'toggle', default: true, isAdvanced: true },
+      { key: 'need_blackboard', label: '需要板书设计', type: 'toggle', default: true, isAdvanced: true },
+      { key: 'need_rubric', label: '需要评价量规', type: 'toggle', default: true, isAdvanced: true }
+    ]
+  },
+  {
+    id: 'core-literacy-breakdown',
+    name: '新课标核心素养目标拆解',
+    description: '围绕课题或单元拆解官方核心素养目标，适合教案、学历案和计划总结使用',
+    category: '教学设计',
+    icon: 'BookOpen',
+    fields: [
+      { key: 'grade_subject', label: '年级和学科', type: 'select', options: GRADE_SUBJECT_OPTIONS.filter(option => /语文|数学|英语|科学|道德与法治|体育|音乐|美术/.test(option)), required: true, isAdvanced: false },
+      { key: 'textbook_version', label: '教材版本', type: 'select', options: ['部编版', '人教版'], required: true, isAdvanced: false },
+      { key: 'topic', label: '课题/单元', type: 'text', placeholder: '例如：《背影》 / 分数的初步认识 / 光的反射', required: true, isAdvanced: false }
+    ]
+  },
+  {
     id: 'project-based-learning',
-    name: '项目式学习设计',
+    name: '项目式学习（PBL）设计',
     description: '围绕真实问题生成项目任务、阶段安排与成果评价',
     category: '教学设计',
     icon: 'BookOpen',
@@ -205,7 +238,7 @@ const baseTools = [
   },
   {
     id: 'science-lab',
-    name: '科学实验课设计',
+    name: '科学实验教学设计',
     description: '生成实验课流程、材料清单、安全提示与观察记录建议',
     category: '教学设计',
     icon: 'BookOpen',
@@ -219,7 +252,7 @@ const baseTools = [
   },
   {
     id: 'content-gen',
-    name: '教学内容生成',
+    name: '学科教学内容生成',
     description: '根据主题与教学目标生成可直接用于课堂的原创材料',
     category: '教学内容',
     icon: 'FileText',
@@ -236,7 +269,7 @@ const baseTools = [
   },
   {
     id: 'expository-text',
-    name: '说明性文本生成',
+    name: '说明性阅读文本生成',
     description: '围绕概念、现象或主题生成适合课堂讲解的说明性文本',
     category: '教学内容',
     icon: 'FileText',
@@ -250,7 +283,7 @@ const baseTools = [
   },
   {
     id: 'phonics-reader',
-    name: '拼读文本/注音读物生成',
+    name: '拼音拼读文本生成',
     description: '为低龄阅读或语文基础教学生成适合朗读与识字的文本',
     category: '教学内容',
     icon: 'FileText',
@@ -264,7 +297,7 @@ const baseTools = [
   },
   {
     id: 'vocab-text',
-    name: '词汇嵌入文本生成',
+    name: '词汇情境化文本生成',
     description: '将指定重点词汇自然嵌入教学文本，服务词汇理解与语境学习',
     category: '教学内容',
     icon: 'FileText',
@@ -279,7 +312,7 @@ const baseTools = [
   },
   {
     id: 'vocab-list',
-    name: '重点词汇清单生成',
+    name: '课标重点词汇清单',
     description: '围绕课文或主题整理核心词汇、释义、例句与教学提示',
     category: '教学内容',
     icon: 'FileText',
@@ -294,7 +327,7 @@ const baseTools = [
   },
   {
     id: 'data-analysis-task',
-    name: '数据表分析任务生成',
+    name: '数据图表分析任务设计',
     description: '根据数据表或统计信息生成课堂分析任务和问题链',
     category: '教学内容',
     icon: 'FileText',
@@ -308,7 +341,7 @@ const baseTools = [
   },
   {
     id: 'real-world-connection',
-    name: '现实情境连接生成',
+    name: '真实情境学习任务设计',
     description: '把知识点与真实生活或社会情境连接起来，增强课堂代入感',
     category: '教学内容',
     icon: 'FileText',
@@ -322,7 +355,7 @@ const baseTools = [
   },
   {
     id: 'lesson-hook',
-    name: '课堂导入生成',
+    name: '课堂导入设计',
     description: '围绕课题生成导入话术、情境和问题链，帮助老师快速开课',
     category: '教学内容',
     icon: 'FileText',
@@ -336,7 +369,7 @@ const baseTools = [
   },
   {
     id: 'math-word-problem',
-    name: '数学应用题生成',
+    name: '数学情境应用题生成',
     description: '围绕数学知识点生成真实情境下的应用题',
     category: '教学内容',
     icon: 'FileText',
@@ -350,7 +383,7 @@ const baseTools = [
   },
   {
     id: 'math-review-set',
-    name: '数学复习题组生成',
+    name: '数学单元复习题组设计',
     description: '围绕单元或专题生成有梯度的数学复习题组',
     category: '教学内容',
     icon: 'FileText',
@@ -364,7 +397,7 @@ const baseTools = [
   },
   {
     id: 'sel-lesson-plan',
-    name: '社会情感学习教案',
+    name: '心理健康与德育活动教案',
     description: '围绕情绪管理、同伴合作、自我认知等主题生成课程方案',
     category: '教学设计',
     icon: 'BookOpen',
@@ -378,7 +411,7 @@ const baseTools = [
   },
   {
     id: 'syllabus-generator',
-    name: '课程纲要生成',
+    name: '学期课程纲要生成',
     description: '生成学期课程纲要、学习安排与评价说明',
     category: '教学设计',
     icon: 'BookOpen',
@@ -392,7 +425,7 @@ const baseTools = [
   },
   {
     id: 'group-work',
-    name: '小组活动生成',
+    name: '小组合作学习活动设计',
     description: '围绕课堂目标生成可直接实施的小组合作活动设计',
     category: '教学设计',
     icon: 'Users',
@@ -407,7 +440,7 @@ const baseTools = [
   },
   {
     id: 'pd-planner',
-    name: '教师培训计划生成',
+    name: '校本教研 / 教师培训方案设计',
     description: '围绕教研主题、培训对象和活动目标生成教师培训方案',
     category: '教学设计',
     icon: 'BookOpen',
@@ -421,7 +454,7 @@ const baseTools = [
   },
   {
     id: 'exercise-gen',
-    name: '练习与检测',
+    name: '随堂练习与检测',
     description: '生成随堂练习、单元测验、课后作业',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -443,7 +476,7 @@ const baseTools = [
   },
   {
     id: 'worksheet-gen',
-    name: '练习单生成',
+    name: '课堂练习单设计',
     description: '围绕课题生成适合课堂发放的练习单或学习任务单',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -461,7 +494,7 @@ const baseTools = [
   },
   {
     id: 'multiple-choice-quiz',
-    name: '选择题测评生成',
+    name: '选择题测评设计',
     description: '围绕知识点快速生成规范的选择题测评',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -478,7 +511,7 @@ const baseTools = [
   },
   {
     id: 'cognitive-questions',
-    name: '认知层次问题生成',
+    name: '分层认知问题设计',
     description: '按记忆、理解、应用、分析等层次生成提问与练习问题',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -494,7 +527,7 @@ const baseTools = [
   },
   {
     id: 'text-dependent-questions',
-    name: '文本依赖性阅读理解题',
+    name: '文本依托型阅读理解题',
     description: '基于给定文本生成紧扣文本证据的阅读理解问题',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -510,7 +543,7 @@ const baseTools = [
   },
   {
     id: 'text-analysis-task',
-    name: '文本分析任务生成',
+    name: '文本细读分析任务',
     description: '围绕篇章结构、表达效果、人物形象等角度生成分析任务',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -526,7 +559,7 @@ const baseTools = [
   },
   {
     id: 'video-questions',
-    name: '视频学习问题生成',
+    name: '视频学习任务单设计',
     description: '根据教学视频生成观看任务、思考问题与课堂讨论题',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -542,7 +575,7 @@ const baseTools = [
   },
   {
     id: 'math-drill',
-    name: '高强度数学练习题',
+    name: '数学专项强化训练',
     description: '快速生成题量更足、训练梯度更清晰的数学专项训练',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -558,7 +591,7 @@ const baseTools = [
   },
   {
     id: 'english-reading-assessment',
-    name: '高强度英语阅读测评',
+    name: '英语阅读强化测评',
     description: '围绕英语阅读材料生成较完整的阅读理解测评任务',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -574,7 +607,7 @@ const baseTools = [
   },
   {
     id: 'science-3d-assessment',
-    name: '科学探究能力评价任务生成',
+    name: '科学探究能力评价任务',
     description: '围绕科学概念、探究实践和证据解释生成三维科学评价任务',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -589,7 +622,7 @@ const baseTools = [
   },
   {
     id: 'multi-step-assignment',
-    name: '多步骤任务型作业',
+    name: '多步骤任务型作业设计',
     description: '生成带有步骤推进、资料处理和成果输出的任务型作业',
     category: '练习命题',
     icon: 'ClipboardList',
@@ -604,7 +637,7 @@ const baseTools = [
   },
   {
     id: 'layered-homework',
-    name: '分层作业',
+    name: '分层作业设计',
     description: '围绕同一教学目标生成必做、选做与拓展作业',
     category: '差异化教学',
     icon: 'Layers',
@@ -617,8 +650,22 @@ const baseTools = [
     ]
   },
   {
+    id: 'double-reduction-homework',
+    name: '双减合规分层作业',
+    description: '围绕双减要求生成控量、分层、可直接布置和检查的作业方案',
+    category: '差异化教学',
+    icon: 'Layers',
+    fields: [
+      { key: 'grade_subject', label: '年级和学科', type: 'select', options: GRADE_SUBJECT_OPTIONS, required: true, isAdvanced: false },
+      { key: 'topic', label: '课题/知识点', type: 'text', placeholder: '例如：一元一次方程 / 慈母情深 / 光的反射', required: true, isAdvanced: false },
+      { key: 'duration', label: '预计时长', type: 'select', options: ['10分钟', '15分钟', '20分钟'], required: true, isAdvanced: false },
+      { key: 'student_situation', label: '学情', type: 'select', options: ['基础薄弱', '中等', '良好'], required: true, isAdvanced: false },
+      { key: 'question_count', label: '题量', type: 'select', options: ['少', '适中', '充足'], required: true, isAdvanced: false }
+    ]
+  },
+  {
     id: 'choice-board',
-    name: '选择板生成',
+    name: '多元选择学习板',
     description: '生成供学生自主选择完成的学习任务面板',
     category: '差异化教学',
     icon: 'Layers',
@@ -632,7 +679,7 @@ const baseTools = [
   },
   {
     id: 'text-scaffold',
-    name: '差异化改写与支架',
+    name: '差异化学习支架设计',
     description: '对文本或任务做分层改写、支架设计与拓展任务生成',
     category: '差异化教学',
     icon: 'Layers',
@@ -647,7 +694,7 @@ const baseTools = [
   },
   {
     id: 'exam-review',
-    name: '试卷讲评',
+    name: '试卷讲评课设计',
     description: '分析试卷，生成讲评流程和错因分析',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -663,7 +710,7 @@ const baseTools = [
   },
   {
     id: 'feedback-rubric',
-    name: '反馈与量规',
+    name: '评价反馈与量规设计',
     description: '生成评语、量规、课堂观察表',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -679,7 +726,7 @@ const baseTools = [
   },
   {
     id: 'student-comment',
-    name: '学生评语',
+    name: '学生综合素质评语',
     description: '根据学生表现生成个性化、具体、有温度的成长评语',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -693,7 +740,7 @@ const baseTools = [
   },
   {
     id: 'classroom-observation',
-    name: '听评课反馈',
+    name: '听评课记录与反馈',
     description: '生成适合教研组、备课组使用的听评课记录与改进建议',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -707,7 +754,7 @@ const baseTools = [
   },
   {
     id: 'survey-creator',
-    name: '问卷生成',
+    name: '教育调研问卷设计',
     description: '围绕教学反馈、活动调查或学生感受生成问卷题目',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -721,7 +768,7 @@ const baseTools = [
   },
   {
     id: 'writing-feedback',
-    name: '写作反馈生成',
+    name: '作文批改与反馈',
     description: '根据学生作文或写作内容生成具体反馈与修改建议',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -735,7 +782,7 @@ const baseTools = [
   },
   {
     id: 'text-proofreader',
-    name: '文本校对润色',
+    name: '文稿校对与优化',
     description: '对学生或教师文本做病句、表达与结构优化建议',
     category: '反馈评价',
     icon: 'MessageSquare',
@@ -748,7 +795,7 @@ const baseTools = [
   },
   {
     id: 'class-meeting',
-    name: '主题班会',
+    name: '主题班会设计',
     description: '设计主题班会活动流程',
     category: '学生支持',
     icon: 'Heart',
@@ -763,7 +810,7 @@ const baseTools = [
   },
   {
     id: 'parent-communication',
-    name: '家校沟通',
+    name: '家校沟通话术',
     description: '生成家长通知、家长信、学习建议',
     category: '沟通写作',
     icon: 'Send',
@@ -779,7 +826,7 @@ const baseTools = [
   },
   {
     id: 'professional-email',
-    name: '正式沟通文本生成',
+    name: '校园正式公文写作',
     description: '面向家长、同事或管理者生成正式沟通文本',
     category: '沟通写作',
     icon: 'Send',
@@ -793,7 +840,7 @@ const baseTools = [
   },
   {
     id: 'class-newsletter',
-    name: '班级通讯生成',
+    name: '班级周报 / 家校通讯',
     description: '生成适合班级群或班级月报使用的班级通讯文本',
     category: '沟通写作',
     icon: 'Send',
@@ -806,7 +853,7 @@ const baseTools = [
   },
   {
     id: 'email-reply',
-    name: '邮件回复生成',
+    name: '公务邮件回复',
     description: '根据来信内容生成专业、得体的回复文本',
     category: '沟通写作',
     icon: 'Send',
@@ -820,7 +867,7 @@ const baseTools = [
   },
   {
     id: 'recommendation-letter',
-    name: '推荐信生成',
+    name: '推荐信撰写',
     description: '根据学生或教师的表现信息生成结构完整的推荐信',
     category: '沟通写作',
     icon: 'Send',
@@ -834,7 +881,7 @@ const baseTools = [
   },
   {
     id: 'thank-you-letter',
-    name: '感谢信生成',
+    name: '感谢信撰写',
     description: '为家长、同事、志愿者或合作单位生成感谢信',
     category: '沟通写作',
     icon: 'Send',
@@ -847,7 +894,7 @@ const baseTools = [
   },
   {
     id: 'promo-copy',
-    name: '宣传文案生成',
+    name: '校园活动宣传文案',
     description: '为校园活动、班级活动或课程成果生成宣传文案',
     category: '沟通写作',
     icon: 'Send',
@@ -860,7 +907,7 @@ const baseTools = [
   },
   {
     id: 'student-support',
-    name: '学生支持',
+    name: '学生个性化学习支持',
     description: '学困生辅导、心理疏导、成长规划',
     category: '学生支持',
     icon: 'Heart',
@@ -879,7 +926,7 @@ const baseTools = [
   },
   {
     id: 'teaching-adjustment',
-    name: '教学调整建议生成',
+    name: '课堂教学调整建议',
     description: '针对学生学习困难或课堂表现生成可执行的教学调整建议',
     category: '学生支持',
     icon: 'Heart',
@@ -893,7 +940,7 @@ const baseTools = [
   },
   {
     id: 'support-goals',
-    name: '发展目标生成',
+    name: '学生成长目标制定',
     description: '围绕学生当前状态生成阶段性成长目标与跟进建议',
     category: '学生支持',
     icon: 'Heart',
@@ -906,7 +953,7 @@ const baseTools = [
   },
   {
     id: 'social-story',
-    name: '社交故事生成',
+    name: '社交行为引导故事',
     description: '围绕具体校园场景生成适合学生理解与练习的社交故事',
     category: '学生支持',
     icon: 'Heart',
@@ -919,7 +966,7 @@ const baseTools = [
   },
   {
     id: 'restorative-reflection',
-    name: '修复式反思任务',
+    name: '修复性反思任务设计',
     description: '针对冲突、违纪或不当行为生成修复式反思任务和提问',
     category: '学生支持',
     icon: 'Heart',
@@ -932,7 +979,7 @@ const baseTools = [
   },
   {
     id: 'classroom-management',
-    name: '课堂管理建议生成',
+    name: '班级课堂管理策略',
     description: '围绕课堂秩序、参与度和规则执行生成管理建议',
     category: '学生支持',
     icon: 'Heart',
@@ -945,7 +992,7 @@ const baseTools = [
   },
   {
     id: 'inclusive-support-plan',
-    name: '随班支持计划草案',
+    name: '随班就读支持方案',
     description: '围绕学生在普通班级中的学习与参与需求生成支持计划草案',
     category: '学生支持',
     icon: 'Heart',
@@ -959,7 +1006,7 @@ const baseTools = [
   },
   {
     id: 'individual-support-plan',
-    name: '个别化支持计划草案',
+    name: '个别化学习支持方案',
     description: '针对学生个体差异生成阶段性目标、支持措施和跟踪建议',
     category: '学生支持',
     icon: 'Heart',
@@ -973,7 +1020,7 @@ const baseTools = [
   },
   {
     id: 'behavior-support-plan',
-    name: '行为支持计划草案',
+    name: '学生行为支持方案',
     description: '围绕学生行为表现生成行为支持目标、策略和跟踪建议',
     category: '学生支持',
     icon: 'Heart',
@@ -987,7 +1034,7 @@ const baseTools = [
   },
   {
     id: 'subject-resource-bot',
-    name: '学科资源机器人配置',
+    name: '学科资源助手',
     description: '配置围绕某一学科或专题持续提供资源与建议的课堂助手',
     category: '课堂助手',
     icon: 'Zap',
@@ -1000,7 +1047,7 @@ const baseTools = [
   },
   {
     id: 'roleplay-bot',
-    name: '角色扮演机器人配置',
+    name: '课堂角色扮演助手',
     description: '配置能在课堂中进行角色扮演、对话演练和情境模拟的助手',
     category: '课堂助手',
     icon: 'Zap',
@@ -1013,7 +1060,7 @@ const baseTools = [
   },
   {
     id: 'doc-qa-bot',
-    name: '文档问答机器人配置',
+    name: '文档智能问答助手',
     description: '配置能够围绕资料、讲义、校本材料进行问答的课堂助手',
     category: '课堂助手',
     icon: 'Zap',
@@ -1026,7 +1073,7 @@ const baseTools = [
   },
   {
     id: 'custom-chatbot',
-    name: '自定义聊天机器人配置',
+    name: '自定义课堂助手',
     description: '自由定义教学聊天机器人的角色、边界、能力与示例问题',
     category: '课堂助手',
     icon: 'Zap',
@@ -1041,7 +1088,7 @@ const baseTools = [
   },
   {
     id: 'standards-chatbot',
-    name: '课程标准聊天机器人配置',
+    name: '新课标解读助手',
     description: '围绕课程标准、学段要求和目标拆解配置标准导向型教学助手',
     category: '课堂助手',
     icon: 'Zap',
@@ -1055,7 +1102,7 @@ const baseTools = [
   },
   {
     id: 'ai-chatbot',
-    name: '课堂助手配置',
+    name: '课堂教学助手',
     description: '为课堂场景配置有边界、可复用的课堂对话助手',
     category: '课堂助手',
     icon: 'Zap',
@@ -1076,6 +1123,8 @@ const compactVisibleFieldKeys = {
   'lesson-5e': ['grade_subject', 'topic', 'teaching_objectives', 'textbook_version'],
   'unit-plan': ['grade_subject', 'unit_name', 'unit_goals', 'textbook_version'],
   'lesson-talk': ['grade_subject', 'topic', 'talk_focus'],
+  'unit-learning-plan': ['grade_subject', 'textbook_version', 'unit_name', 'unit_hours', 'student_situation'],
+  'core-literacy-breakdown': ['grade_subject', 'textbook_version', 'topic'],
   'project-based-learning': ['grade_subject', 'project_topic', 'teaching_objectives', 'duration'],
   'science-lab': ['grade_subject', 'topic', 'teaching_objectives', 'resources'],
   'group-work': ['grade_subject', 'topic', 'teaching_objectives', 'group_goal'],
@@ -1104,6 +1153,7 @@ const compactVisibleFieldKeys = {
   'science-3d-assessment': ['grade_subject', 'topic', 'teaching_objectives', 'task_type'],
   'multi-step-assignment': ['grade_subject', 'topic', 'teaching_objectives', 'step_count'],
   'layered-homework': ['grade_subject', 'topic', 'teaching_objectives', 'homework_levels'],
+  'double-reduction-homework': ['grade_subject', 'topic', 'duration', 'student_situation', 'question_count'],
   'choice-board': ['grade_subject', 'topic', 'teaching_objectives', 'board_size'],
   'text-scaffold': ['grade_subject', 'source_text', 'teaching_objectives', 'scaffold_type'],
   'exam-review': ['exam_name', 'grade_subject', 'student_issues'],

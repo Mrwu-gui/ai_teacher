@@ -10,7 +10,8 @@ import {
   Heart, 
   Zap,
   Search,
-  ChevronDown
+  ChevronDown,
+  Sparkles
 } from 'lucide-react'
 import { categories, allTools, getToolsByCategory } from '../data/tools'
 
@@ -18,6 +19,7 @@ const ToolLibraryPage = () => {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedCategory, setExpandedCategory] = useState(null)
+  const [hoveredToolId, setHoveredToolId] = useState(null)
 
   const iconMap = {
     BookOpen: BookOpen,
@@ -28,6 +30,32 @@ const ToolLibraryPage = () => {
     Send: Send,
     Heart: Heart,
     Zap: Zap
+  }
+
+  // 根据分类映射图标
+  const categoryIconMap = {
+    '教学设计': BookOpen,
+    '教学内容': FileText,
+    '练习命题': ClipboardList,
+    '差异化教学': Layers,
+    '反馈评价': MessageSquare,
+    '沟通写作': Send,
+    '学生支持': Heart,
+    '课堂助手': Zap,
+  }
+
+  // 获取工具图标
+  const getToolIcon = (tool) => {
+    // 如果工具有 icon 字段，优先使用
+    if (tool.icon && iconMap[tool.icon]) {
+      return iconMap[tool.icon]
+    }
+    // 否则根据分类返回图标
+    if (tool.category && categoryIconMap[tool.category]) {
+      return categoryIconMap[tool.category]
+    }
+    // 默认返回 BookOpen
+    return BookOpen
   }
 
   const handleToolClick = (toolId) => {
@@ -73,31 +101,62 @@ const ToolLibraryPage = () => {
           <div className="mb-4 text-sm text-slate-500">
             找到 {filteredTools.length} 个工具
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
             {filteredTools.map(tool => {
-              const Icon = iconMap[tool.icon] || BookOpen
+              const isHovered = hoveredToolId === tool.id
               
               return (
                 <div
                   key={tool.id}
                   onClick={() => handleToolClick(tool.id)}
-                  className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
+                  onMouseEnter={() => setHoveredToolId(tool.id)}
+                  onMouseLeave={() => setHoveredToolId(null)}
+                  className="relative bg-white border border-slate-200 rounded-lg p-3 cursor-pointer will-change-transform overflow-hidden"
+                  style={{
+                    transition: 'all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
+                    boxShadow: isHovered ? '0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04)' : '0 1px 2px rgba(0, 0, 0, 0.02)',
+                    borderColor: isHovered ? '#cbd5e1' : '#e2e8f0',
+                  }}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
-                      <Icon className="w-5 h-5" />
-                    </div>
+                  {/* 左侧蓝色指示条 */}
+                  <div 
+                    className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 transition-opacity duration-200"
+                    style={{ opacity: isHovered ? 1 : 0.6 }}
+                  />
+                  
+                  <div className="flex items-center gap-2 pl-2">
+                    {/* 蓝色小圆点 */}
+                    <div 
+                      className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 transition-transform duration-200"
+                      style={{ transform: isHovered ? 'scale(1.2)' : 'scale(1)' }}
+                    />
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-sm text-slate-900 group-hover:text-blue-600 transition-colors">
+                      <div 
+                        className="text-sm font-medium transition-colors truncate"
+                        style={{
+                          color: isHovered ? '#2563eb' : '#334155',
+                        }}
+                      >
                         {tool.name}
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5 line-clamp-1">
                         {tool.description}
-                      </p>
-                      <div className="text-xs text-slate-400 mt-2">
-                        {tool.category}
                       </div>
                     </div>
+                  </div>
+                  
+                  {/* Hover 时显示的箭头 */}
+                  <div 
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400 transition-all duration-200"
+                    style={{
+                      opacity: isHovered ? 1 : 0,
+                      transform: isHovered ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(-4px)',
+                    }}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                   </div>
                 </div>
               )
@@ -116,14 +175,14 @@ const ToolLibraryPage = () => {
               const isExpanded = expandedCategory === category.id
               
               return (
-                <div key={category.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div key={category.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                   {/* 分类头部 */}
                   <div
                     onClick={() => toggleCategory(category.id)}
                     className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
+                      <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
                         <Icon className="w-5 h-5" />
                       </div>
                       <div>
@@ -132,33 +191,64 @@ const ToolLibraryPage = () => {
                       </div>
                     </div>
                     <ChevronDown 
-                      className={`w-5 h-5 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+                      className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} 
                     />
                   </div>
                   
                   {/* 工具列表 */}
                   {isExpanded && (
-                    <div className="border-t border-slate-100 p-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="border-t border-slate-100 p-4 bg-slate-50">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                         {tools.map(tool => {
-                          const toolIcon = iconMap[tool.icon] || BookOpen
+                          const isHovered = hoveredToolId === tool.id
                           
                           return (
                             <div
                               key={tool.id}
                               onClick={() => handleToolClick(tool.id)}
-                              className="flex items-start gap-3 p-3 rounded-lg border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all cursor-pointer group"
+                              onMouseEnter={() => setHoveredToolId(tool.id)}
+                              onMouseLeave={() => setHoveredToolId(null)}
+                              className="relative bg-white border border-slate-200 rounded-lg p-3 cursor-pointer will-change-transform overflow-hidden"
+                              style={{
+                                transition: 'all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                                transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
+                                boxShadow: isHovered ? '0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04)' : '0 1px 2px rgba(0, 0, 0, 0.02)',
+                                borderColor: isHovered ? '#cbd5e1' : '#e2e8f0',
+                              }}
                             >
-                              <div className="text-slate-500 flex-shrink-0">
-                                <toolIcon className="w-5 h-5" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-medium text-sm text-slate-900 group-hover:text-blue-600 transition-colors">
+                              {/* 左侧蓝色指示条 */}
+                              <div 
+                                className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 transition-opacity duration-200"
+                                style={{ opacity: isHovered ? 1 : 0.6 }}
+                              />
+                              
+                              <div className="flex items-center gap-2 pl-2">
+                                {/* 蓝色小圆点 */}
+                                <div 
+                                  className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 transition-transform duration-200"
+                                  style={{ transform: isHovered ? 'scale(1.2)' : 'scale(1)' }}
+                                />
+                                <div 
+                                  className="text-sm font-medium transition-colors truncate"
+                                  style={{
+                                    color: isHovered ? '#2563eb' : '#334155',
+                                  }}
+                                >
                                   {tool.name}
-                                </h3>
-                                <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
-                                  {tool.description}
-                                </p>
+                                </div>
+                              </div>
+                              
+                              {/* Hover 时显示的箭头 */}
+                              <div 
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400 transition-all duration-200"
+                                style={{
+                                  opacity: isHovered ? 1 : 0,
+                                  transform: isHovered ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(-4px)',
+                                }}
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
                               </div>
                             </div>
                           )

@@ -1,16 +1,24 @@
-import React, { useState, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { 
   BookOpen, 
   ClipboardList, 
   MessageSquare, 
   Users, 
   ArrowRight,
-  Clock,
   Sparkles,
-  Search
+  Search,
+  GitBranch,
+  Wrench
 } from 'lucide-react'
-import { mainTasks, getToolById, allTools, categories } from '../data/tools'
+import { mainTasks, getToolById } from '../data/tools'
+
+const iconMap = {
+  BookOpen,
+  ClipboardList,
+  MessageSquare,
+  Users,
+}
 
 const practicalToolIds = [
   'lesson-plan',
@@ -29,47 +37,26 @@ const practicalToolIds = [
 
 const HomePage = () => {
   const navigate = useNavigate()
-  const location = useLocation()
   const [greeting, setGreeting] = useState('')
-  const [recentUsed, setRecentUsed] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [hoveredTaskId, setHoveredTaskId] = useState(null)
+  const [hoveredToolId, setHoveredToolId] = useState(null)
 
-  const loadRecentUsed = () => {
-    const history = JSON.parse(localStorage.getItem('beike_history') || '[]')
-      .filter(item => item.result && String(item.result).trim())
-      .map(item => ({
-        ...item,
-        status: '成功',
-        timestamp: item.createdAt
-      }))
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 4)
-
-    setRecentUsed(history)
+  // 根据时间设置问候语
+  const hour = new Date().getHours()
+  if (hour < 6) {
+    if (greeting !== '夜深了') setGreeting('夜深了')
+  } else if (hour < 12) {
+    if (greeting !== '早上好') setGreeting('早上好')
+  } else if (hour < 14) {
+    if (greeting !== '中午好') setGreeting('中午好')
+  } else if (hour < 18) {
+    if (greeting !== '下午好') setGreeting('下午好')
+  } else {
+    if (greeting !== '晚上好') setGreeting('晚上好')
   }
 
-  useEffect(() => {
-    // 根据时间设置问候语
-    const hour = new Date().getHours()
-    if (hour < 6) setGreeting('夜深了')
-    else if (hour < 12) setGreeting('早上好')
-    else if (hour < 14) setGreeting('中午好')
-    else if (hour < 18) setGreeting('下午好')
-    else setGreeting('晚上好')
 
-    loadRecentUsed()
-  }, [])
-
-  useEffect(() => {
-    loadRecentUsed()
-  }, [location.pathname])
-
-  const iconMap = {
-    BookOpen: BookOpen,
-    ClipboardList: ClipboardList,
-    MessageSquare: MessageSquare,
-    Users: Users
-  }
 
   const handleQuickStart = (toolId, historyItem = null) => {
     navigate(`/tool/${toolId}`, historyItem ? { state: { historyItem } } : undefined)
@@ -95,7 +82,7 @@ const HomePage = () => {
               {greeting}，老师 👋
             </h1>
             <p className="text-slate-500 text-sm">
-              今天想做什么？AI备课工作台随时为您服务
+              AI 备课工作台，帮你 10 分钟搞定备课、出题、家校沟通全流程
             </p>
           </div>
 
@@ -122,18 +109,49 @@ const HomePage = () => {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {mainTasks.map((task) => {
               const Icon = iconMap[task.icon]
+              const isHovered = hoveredTaskId === task.id
               
               return (
                 <div
                   key={task.id}
-                  className="bg-white rounded-2xl border border-blue-100 p-4 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
+                  className="bg-white rounded-2xl border border-blue-100 p-4 cursor-pointer will-change-transform"
                   onClick={() => handleQuickStart(task.tools[0].id)}
+                  onMouseEnter={() => setHoveredTaskId(task.id)}
+                  onMouseLeave={() => setHoveredTaskId(null)}
+                  style={{
+                    transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease, border-color 0.3s ease',
+                    transform: isHovered ? 'scale(1.08) translateY(-8px)' : 'scale(1) translateY(0)',
+                    boxShadow: isHovered ? '0 20px 40px rgba(0, 0, 0, 0.12)' : '0 0px 0px rgba(0, 0, 0, 0)',
+                    borderColor: isHovered ? '#bfdbfe' : '#dbeafe',
+                    zIndex: isHovered ? 10 : 1,
+                  }}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <Icon className="w-5 h-5 text-blue-500 group-hover:text-blue-600 transition-colors" />
-                    <ArrowRight className="w-4 h-4 text-blue-300 group-hover:text-blue-500 transition-colors" />
+                    <Icon 
+                      className="w-5 h-5 text-blue-500"
+                      style={{
+                        transition: 'color 0.3s ease',
+                        color: isHovered ? '#2563eb' : '#3b82f6',
+                      }}
+                    />
+                    <ArrowRight 
+                      className="w-4 h-4 text-blue-300"
+                      style={{
+                        transition: 'transform 0.3s ease, color 0.3s ease',
+                        transform: isHovered ? 'translateX(4px)' : 'translateX(0)',
+                        color: isHovered ? '#3b82f6' : '#93c5fd',
+                      }}
+                    />
                   </div>
-                  <h3 className="font-semibold text-sm text-slate-900 mb-1 group-hover:text-blue-600 transition-colors">{task.name}</h3>
+                  <h3 
+                    className="font-semibold text-sm text-slate-900 mb-1"
+                    style={{
+                      transition: 'color 0.3s ease',
+                      color: isHovered ? '#2563eb' : '#0f172a',
+                    }}
+                  >
+                    {task.name}
+                  </h3>
                   <p className="text-xs text-slate-500 line-clamp-2">{task.description}</p>
                 </div>
               )
@@ -149,21 +167,67 @@ const HomePage = () => {
             <Sparkles className="w-4 h-4 text-blue-400" />
             高频工具
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-            {practicalTools.map((tool) => (
-              <div
-                key={tool.id}
-                onClick={() => handleQuickStart(tool.id)}
-                className="bg-white border border-blue-100 rounded-xl p-3 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
-              >
-                <div className="font-medium text-sm text-slate-900 group-hover:text-blue-600 transition-colors">
-                  {tool.name}
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+            {practicalTools.map((tool) => {
+              const isHovered = hoveredToolId === tool.id
+              
+              return (
+                <div
+                  key={tool.id}
+                  onClick={() => handleQuickStart(tool.id)}
+                  onMouseEnter={() => setHoveredToolId(tool.id)}
+                  onMouseLeave={() => setHoveredToolId(null)}
+                  className="group relative bg-white rounded-xl p-3 cursor-pointer will-change-transform overflow-hidden"
+                  style={{
+                    transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    transform: isHovered ? 'translateY(-3px) scale(1.02)' : 'translateY(0) scale(1)',
+                    boxShadow: isHovered 
+                      ? '0 8px 24px rgba(59, 130, 246, 0.15), 0 2px 8px rgba(0, 0, 0, 0.08)' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02)',
+                    border: isHovered ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                  }}
+                >
+                  {/* 渐变背景 */}
+                  <div 
+                    className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                  />
+                  
+                  {/* 顶部装饰线 */}
+                  <div 
+                    className="absolute top-0 left-4 right-4 h-0.5 bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-300"
+                    style={{ 
+                      opacity: isHovered ? 1 : 0,
+                      transform: isHovered ? 'scaleX(1)' : 'scaleX(0)',
+                    }}
+                  />
+                  
+                  <div className="relative">
+                    {/* 工具名称 */}
+                    <div className="text-sm font-semibold text-slate-700 group-hover:text-blue-600 transition-colors duration-200 truncate">
+                      {tool.name}
+                    </div>
+                    
+                    {/* 箭头图标 */}
+                    <div 
+                      className="absolute right-0 bottom-0 transition-all duration-200"
+                      style={{
+                        opacity: isHovered ? 1 : 0,
+                        transform: isHovered ? 'translateX(0)' : 'translateX(-4px)',
+                      }}
+                    >
+                      <svg 
+                        className="w-3.5 h-3.5 text-blue-500"
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">
-                  {tool.description}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
@@ -171,71 +235,53 @@ const HomePage = () => {
       {/* 进入工具库 */}
       <div className="px-4 mt-8">
         <div className="max-w-5xl mx-auto">
-          <Link
-            to="/tools"
-            className="block w-full bg-white border-2 border-dashed border-blue-200 rounded-2xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all group"
-          >
-            <div className="flex items-center justify-center gap-2 text-blue-600 group-hover:text-blue-700">
-              <span className="font-medium">查看完整工具库</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
-            <div className="text-sm text-blue-400 mt-1">
-              {categories.length}大分类 · {allTools.length}个教学工具
-            </div>
-          </Link>
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* 工作流入口 */}
+            <Link
+              to="/workflows"
+              className="block rounded-3xl border border-blue-100 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 p-6 text-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl group"
+            >
+              <div className="flex flex-col gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium w-fit">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  教学工作流
+                </div>
+                <div className="text-xl font-semibold">把备课、练习、讲评串成一条完整流程</div>
+                <div className="text-sm text-blue-50/90">
+                  选择通用工作流，或把常用工具组合成自己的工作流，一步步接着做下去。
+                </div>
+                <div className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-medium text-blue-600 w-fit group-hover:shadow-lg transition-shadow">
+                  进入工作流
+                  <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+
+            {/* 工具库入口 */}
+            <Link
+              to="/tools"
+              className="block rounded-3xl border border-teal-100 bg-gradient-to-r from-teal-600 via-cyan-500 to-blue-500 p-6 text-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl group"
+            >
+              <div className="flex flex-col gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium w-fit">
+                  <Wrench className="h-3.5 w-3.5" />
+                  教学工具库
+                </div>
+                <div className="text-xl font-semibold">60+ 教学工具随心选用</div>
+                <div className="text-sm text-teal-50/90">
+                  覆盖教案、练习、评价、沟通等教学全场景，每个工具独立使用。
+                </div>
+                <div className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-medium text-teal-600 w-fit group-hover:shadow-lg transition-shadow">
+                  查看工具库
+                  <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* 最近使用 */}
-      {recentUsed.length > 0 && (
-        <div className="px-4 mt-8 pb-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-400" />
-                最近使用
-              </h2>
-              <Link
-                to="/history"
-                className="text-xs text-blue-500 hover:text-blue-700"
-              >
-                查看全部
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {recentUsed.map((item) => {
-                const tool = getToolById(item.templateId)
-                const statusClass = item.status === '草稿'
-                  ? 'bg-amber-50 text-amber-600 border-amber-200'
-                  : 'bg-emerald-50 text-emerald-600 border-emerald-200'
 
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => handleQuickStart(item.templateId, item)}
-                    className="bg-white border border-blue-100 rounded-xl p-4 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="font-medium text-sm text-slate-900 line-clamp-1">
-                        {tool?.name || item.templateName}
-                      </div>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}>
-                        {item.status}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500 mt-2 line-clamp-1">
-                      {item.input?.topic || item.input?.grade_subject || '查看详情'}
-                    </div>
-                    <div className="text-xs text-slate-400 mt-2">
-                      {new Date(item.createdAt).toLocaleDateString('zh-CN')}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
