@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Home, Grid, Clock, User, GitBranch } from 'lucide-react'
+import { Home, Grid, Clock, User, GitBranch, HeartHandshake } from 'lucide-react'
 
 const Layout = ({ children }) => {
   const navItems = [
@@ -8,6 +8,7 @@ const Layout = ({ children }) => {
     { to: '/tools', icon: Grid, label: '工具库' },
     { to: '/workflows', icon: GitBranch, label: '工作流' },
     { to: '/history', icon: Clock, label: '历史' },
+    { to: '/companion', icon: HeartHandshake, label: '教师伴侣' },
     { to: '/profile', icon: User, label: '我的' }
   ]
 

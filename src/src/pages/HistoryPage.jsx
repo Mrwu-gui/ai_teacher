@@ -19,7 +19,7 @@ const HistoryPage = () => {
   const navigate = useNavigate()
   const [toolHistory, setToolHistory] = useState([])
   const [workflowHistory, setWorkflowHistory] = useState([])
-  const [activeTab, setActiveTab] = useState('workflow') // 'workflow' | 'tool'
+  const [activeTab, setActiveTab] = useState('tool') // 'tool' | 'workflow'
 
   // 加载工具历史
   const loadToolHistory = () => {
@@ -80,7 +80,7 @@ const HistoryPage = () => {
   // 工作流状态配置
   const workflowStatusConfig = {
     done: { color: 'text-emerald-600', bg: 'bg-emerald-50', icon: CheckCircle2, label: '已完成' },
-    running: { color: 'text-blue-600', bg: 'bg-blue-50', icon: Loader2, label: '进行中' },
+    running: { color: 'text-blue-600', bg: 'bg-blue-50', icon: Loader2, label: '草稿生成中' },
     waiting: { color: 'text-amber-600', bg: 'bg-amber-50', icon: Clock3, label: '等待补充' },
     error: { color: 'text-red-600', bg: 'bg-red-50', icon: XCircle, label: '执行失败' },
     paused: { color: 'text-slate-600', bg: 'bg-slate-50', icon: Clock3, label: '已暂停' },
@@ -135,22 +135,6 @@ const HistoryPage = () => {
         {/* Tab 切换 */}
         <div className="mb-6 flex gap-2 border-b border-slate-200">
           <button
-            onClick={() => setActiveTab('workflow')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all border-b-2 ${
-              activeTab === 'workflow'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <GitBranch className="h-4 w-4" />
-            工作流记录
-            {workflowHistory.length > 0 && (
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-600">
-                {workflowHistory.length}
-              </span>
-            )}
-          </button>
-          <button
             onClick={() => setActiveTab('tool')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all border-b-2 ${
               activeTab === 'tool'
@@ -163,6 +147,22 @@ const HistoryPage = () => {
             {toolHistory.length > 0 && (
               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-600">
                 {toolHistory.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('workflow')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all border-b-2 ${
+              activeTab === 'workflow'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <GitBranch className="h-4 w-4" />
+            工作流记录
+            {workflowHistory.length > 0 && (
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-600">
+                {workflowHistory.length}
               </span>
             )}
           </button>

@@ -9,7 +9,8 @@ import {
   Sparkles,
   Search,
   GitBranch,
-  Wrench
+  Wrench,
+  HeartHandshake
 } from 'lucide-react'
 import { mainTasks, getToolById } from '../data/tools'
 
@@ -273,6 +274,26 @@ const HomePage = () => {
                 </div>
                 <div className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-medium text-teal-600 w-fit group-hover:shadow-lg transition-shadow">
                   查看工具库
+                  <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+
+            <Link
+              to="/companion"
+              className="block rounded-3xl border border-orange-100 bg-gradient-to-r from-[#f8b37a] via-[#ed9477] to-[#d97757] p-6 text-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl group md:col-span-2"
+            >
+              <div className="flex flex-col gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium w-fit">
+                  <HeartHandshake className="h-3.5 w-3.5" />
+                  教师伴侣
+                </div>
+                <div className="text-xl font-semibold">课间回血、放学前缓一口气</div>
+                <div className="text-sm text-orange-50/90">
+                  呼吸冥想、暖心小故事、幸运抽签，再加上电子木鱼、压力粉碎机和翻牌配对，给老师一个不谈工作的轻松角落。
+                </div>
+                <div className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-medium text-[#d97757] w-fit group-hover:shadow-lg transition-shadow">
+                  去教师伴侣
                   <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>

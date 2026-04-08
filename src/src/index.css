@@ -69,8 +69,15 @@ body {
 /* Markdown 内容样式 */
 .result-preview {
   color: #334155 !important;
-  line-height: 1.9 !important;
-  font-size: 15px !important;
+  line-height: 1.8 !important;
+  font-size: 14px !important;
+}
+
+@media (min-width: 640px) {
+  .result-preview {
+    font-size: 15px !important;
+    line-height: 1.9 !important;
+  }
 }
 
 .result-preview h1,
@@ -93,36 +100,54 @@ body {
 }
 
 .result-preview h1 {
-  font-size: 1.75em !important;
-  padding-bottom: 0.4em !important;
+  font-size: 1.4em !important;
+  padding-bottom: 0.3em !important;
   border-bottom: 2px solid #e2e8f0 !important;
 }
 
 .result-preview h2 {
-  font-size: 1.4em !important;
-}
-
-.result-preview h3 {
   font-size: 1.2em !important;
 }
 
+.result-preview h3 {
+  font-size: 1.1em !important;
+}
+
 .result-preview h4 {
-  font-size: 1.05em !important;
+  font-size: 1em !important;
 }
 
 .result-preview h5 {
-  display: none !important;
+  font-size: 0.95em !important;
+}
+
+@media (min-width: 640px) {
+  .result-preview h1 {
+    font-size: 1.75em !important;
+  }
+  
+  .result-preview h2 {
+    font-size: 1.4em !important;
+  }
+  
+  .result-preview h3 {
+    font-size: 1.2em !important;
+  }
+  
+  .result-preview h4 {
+    font-size: 1.05em !important;
+  }
 }
 
 .result-preview p {
-  margin: 0.8em 0 !important;
+  margin: 0.6em 0 !important;
   white-space: pre-wrap !important;
   word-wrap: break-word !important;
 }
 
 .result-preview ul,
 .result-preview ol {
-  margin: 1em 0 1em 1.5em !important;
+  margin: 0.8em 0 0.8em 1.2em !important;
   padding: 0 !important;
 }
 
@@ -179,19 +204,39 @@ body {
 
 .result-preview table {
   width: 100% !important;
+  max-width: 100% !important;
   border-collapse: collapse !important;
   margin: 1.2em 0 !important;
-  overflow: hidden !important;
   border-radius: 8px !important;
   border: 1px solid #e2e8f0 !important;
+  display: block !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.result-preview table tbody,
+.result-preview table thead {
+  display: table !important;
+  width: 100% !important;
+  min-width: 600px !important;
 }
 
 .result-preview th,
 .result-preview td {
   border: 1px solid #e2e8f0 !important;
-  padding: 0.75em 1em !important;
+  padding: 0.6em 0.8em !important;
   text-align: left !important;
   vertical-align: top !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  max-width: 400px !important;
+}
+
+.result-preview th {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  font-weight: 600 !important;
 }
 
 .result-preview th {
@@ -248,27 +293,4 @@ body {
 .result-preview input[type="checkbox"] {
   margin-right: 0.5em !important;
   cursor: default !important;
-}
-
-.result-preview table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
-  overflow: hidden;
-  border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
-}
-
-.result-preview th,
-.result-preview td {
-  border: 1px solid #e2e8f0;
-  padding: 0.75rem;
-  text-align: left;
-  vertical-align: top;
-}
-
-.result-preview th {
-  background: #f8fafc;
-  color: #0f172a;
-  font-weight: 600;
 }

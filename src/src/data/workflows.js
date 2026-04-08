@@ -222,9 +222,9 @@ export const getWorkflowExampleSeeds = (workflowId) => {
   return Array.isArray(workflow?.exampleSeeds) && workflow.exampleSeeds.length > 0
     ? workflow.exampleSeeds
     : [
-        `我想用「${workflow?.name || '这个工作流'}」快速开始准备内容。`,
-        `请帮我围绕这条工作流生成一套完整材料。`,
-        `我先说一句需求，你来帮我拆解这条工作流。`,
+        `我想用「${workflow?.name || '这个工作流'}」把这次要准备的内容顺下来。`,
+        `我先把这次的课题和需求告诉你，你按这条工作流帮我往下做。`,
+        `想用这条工作流把要用的材料一次整理出来。`,
       ]
 }
 

@@ -648,11 +648,44 @@ function buildToolSeedPrompt(tool) {
     options: field.options || []
   }));
 
+  const categoryHints = {
+    '沟通写作': [
+      '如果老师原话里已经明确说了“发给家长/学生/同事”“语气温和/正式/简洁”“想沟通的问题或事实”，这些都要尽量落到 recognized 里。',
+      '像“课堂走神、作业拖延、阅读状态下滑、需要提醒带材料”这类具体情况，必须优先写入 content / key_facts / highlights 之类的内容字段，不能漏掉。',
+      '如果老师同时说了语气和额外要求，可以把语气放进 tone，把“要把问题说清楚/更像班主任平时说的话/需要简短版”这类要求放进 special_needs。'
+    ],
+    '教学设计': [
+      '老师原话里提到的年级、学科、教材版本、课题/单元、教学目标、课堂风格，都要尽量提取。',
+      '如果老师已经说清“希望更生动/突出朗读/加强实验/加入合作活动”，不要再把这些内容放进缺失字段里追问。',
+      '如果老师提到“学生基础一般/基础薄弱/愿意表达/班里学生差异大/课堂参与积极”等信息，尽量提取到 student_situation。',
+      '如果老师提到“重点想抓……”“难点是……”“重难点在于……”这类表达，尽量提取到 key_difficult。',
+      '如果老师提到“课堂提问、当堂练习、小组展示、任务单、出口卡、自评互评、小组汇报”等评价安排，尽量提取到 evaluation_method。',
+      '如果老师提到“40分钟一课时、45分钟、2课时、两课时”等时长信息，尽量提取到 duration。'
+    ],
+    '练习命题': [
+      '老师原话里提到的题型、题量、难度、适用年级或知识点，都要尽量识别。',
+      '像“做几题”“偏基础/提升”“围绕某段材料出题”这类信息要优先写入 recognized。'
+    ],
+    '反馈评价': [
+      '如果老师已经给出了优点、不足、评价对象、评价标准，这些都要直接拆到对应字段。',
+      '像学生评语、作文反馈这类工具，老师原话里的“鼓励一点/别太模板化/指出努力方向”也可以写入风格或特殊要求字段。'
+    ],
+    '学生支持': [
+      '老师描述中的学生优势、当前困难、支持方向、情绪或学习表现，尽量拆入对应字段。',
+      '像“愿意参与但作业拖延”“情绪波动大”“基础薄弱但愿意配合”这类完整情况，必须优先落到 recognized。'
+    ]
+  };
+
+  const hintText = categoryHints[tool.category]?.length
+    ? `\n分类提示：\n${categoryHints[tool.category].map((line, index) => `${index + 1}. ${line}`).join('\n')}\n`
+    : '';
+
   return `你是教学工具的意图拆解助手。请把老师一句自然描述拆成“硬约束”和“软建议”。
 
 工具名称：${tool.name}
 工具字段：
 ${JSON.stringify(fields, null, 2)}
+${hintText}
 
 请只返回 JSON：
 {
@@ -660,22 +693,38 @@ ${JSON.stringify(fields, null, 2)}
   "recognized": {
     "字段key": "已识别值"
   },
+  "explicitFieldKeys": ["老师原话里明确说过的字段key"],
+  "inferredFieldKeys": ["AI根据常识推断的字段key"],
+  "candidateFieldOptions": {
+    "字段key": ["当某个 select 字段可能有多个候选标准值时返回候选列表"]
+  },
   "hardFieldKeys": ["需要优先确认的字段key"],
+  "optionalFieldKeys": ["仍可补充但不是必须的字段key"],
   "suggestions": [
     {
       "fieldKey": "适合给建议的字段key",
       "label": "给老师看的短标签",
       "value": "建议值"
     }
+  ],
+  "slotSummary": [
+    {
+      "label": "给老师看的摘要标签",
+      "value": "AI已理解的信息",
+      "source": "explicit/inferred"
+    }
   ]
 }
 
 要求：
-1. 硬约束优先包括年级学科、教材版本、课题/单元这类基础信息。
-2. 软建议优先针对教学目标、重难点、题量、难度这类可由 AI 猜测的内容。
-3. recognized 里只放比较确定的信息。
-4. suggestions 返回 2-4 条即可，短小、可直接点击。
-5. 如果某字段不适合猜，就不要强行给建议。`;
+1. recognized 里要尽量吃满老师已经明确说过的信息，尤其是 textarea/text 类型字段，不要漏掉老师已经说清的内容。
+2. explicitFieldKeys 只放老师原话里明确说过的字段；inferredFieldKeys 只放 AI 猜测或归纳的字段。
+3. 对 select 字段：如果你能唯一确定标准值，直接写进 recognized；如果只能缩小到 2-4 个候选标准值，就写进 candidateFieldOptions，不要乱填 recognized。
+4. hardFieldKeys 只能保留真正还缺、且会影响生成质量的必填字段。老师已经说过的内容绝对不要再放进去。
+5. optionalFieldKeys 只放可选增强字段；如果老师已经说过同类信息，不要再放。
+6. 软建议优先针对教学目标、重难点、题量、难度、输出形式这类可由 AI 猜测的内容。
+7. suggestions 返回 2-4 条即可，短小、可直接点击；不能和 explicitFieldKeys 重复。
+8. slotSummary 要用老师看得懂的话总结“你已经理解了什么”，不要只是复述字段名。`;
 }
 
 function buildWorkflowSeedPrompt(workflow) {
@@ -691,6 +740,8 @@ function buildWorkflowSeedPrompt(workflow) {
 
 工作流名称：${workflow.name}
 工作流描述：${workflow.description}
+公共字段：
+${JSON.stringify(commonFields, null, 2)}
 
 请只返回 JSON：
 {
@@ -702,6 +753,15 @@ function buildWorkflowSeedPrompt(workflow) {
     "unitName": "",
     "seedContext": ""
   },
+  "explicitFieldKeys": [],
+  "inferredFieldKeys": [],
+  "slotSummary": [
+    {
+      "label": "给老师看的摘要标签",
+      "value": "已经识别到的信息",
+      "source": "explicit/inferred"
+    }
+  ],
   "suggestedObjectives": ["", "", ""]
 }
 
@@ -711,7 +771,10 @@ function buildWorkflowSeedPrompt(workflow) {
 3. unitName 可写课题或单元名，尽量从原话提取。
 4. textbookVersion 没提到就留空。
 5. seedContext 保留老师原始意图，用自然中文概括即可。
-6. suggestedObjectives 要像老师会点选的短句，不要太长。`;
+6. 老师原话里明确说过的内容，尽量直接放进 recognized，不要故意留空等追问。
+7. explicitFieldKeys 只放老师原话里明确说过的字段；inferredFieldKeys 只放根据常识补出的字段。
+8. slotSummary 要像在确认“我已经知道这些了”，不要太 AI。
+9. suggestedObjectives 要像老师会点选的短句，不要太长。`;
 }
 
 function extractJsonObject(text) {
@@ -981,6 +1044,9 @@ async function handleWorkflowSeedAnalyze(req, res) {
     const result = extractJsonObject(text) || {
       message: '我先帮你拆出了一版基础信息。',
       recognized: { grade: '', subject: '', textbookVersion: '', unitName: '', seedContext: message },
+      explicitFieldKeys: [],
+      inferredFieldKeys: [],
+      slotSummary: [],
       suggestedObjectives: []
     };
     return sendJson(res, 200, result);
@@ -1013,7 +1079,12 @@ async function handleToolSeedAnalyze(req, res) {
     const result = extractJsonObject(text) || {
       message: '我先帮你锁定了基础信息。',
       recognized: {},
+      explicitFieldKeys: [],
+      inferredFieldKeys: [],
+      candidateFieldOptions: {},
       hardFieldKeys: [],
+      optionalFieldKeys: [],
+      slotSummary: [],
       suggestions: []
     };
     return sendJson(res, 200, result);

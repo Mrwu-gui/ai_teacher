@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, Download, FileText, GitBranch, Loader2, PlayCircle, RotateCcw, Sparkles } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, Download, FileText, GitBranch, Loader2, PlayCircle, RotateCcw, Sparkles, X } from 'lucide-react'
 import { getToolById } from '../data/tools'
 import { 
   createEmptyWorkflowRun,
@@ -17,6 +17,15 @@ import {
 } from '../data/workflows'
 import ConfirmInfoModal from '../components/ConfirmInfoModal'
 import StepPromptModal from '../components/StepPromptModal'
+import { markdownToHtml, sanitizeGeneratedResult, splitResultBlocks } from '../lib/resultMarkdown'
+import {
+  applyRecognizedAliases,
+  deriveRecognizedFromMessage,
+  deriveWorkflowRecognizedFromMessage,
+  getFieldSemanticSlot,
+  hasFilledValue,
+  resolveSelectFieldCandidates,
+} from '../lib/slotFilling'
 
 const readStreamingText = async (response) => {
   if (!response.ok || !response.body) {
@@ -128,6 +137,85 @@ const getAliasedFieldValue = (fieldKey, extraFields, commonInput) => {
   }
 
   return ''
+}
+
+const COMMON_WORKFLOW_VALUE_KEYS = new Set(['grade', 'subject', 'textbookVersion', 'unitName', 'seedContext', 'teachingObjectives'])
+const TOPIC_FIELD_KEY_SET = new Set(['topic', 'unit_name', 'project_topic', 'lesson_topic'])
+const WORKFLOW_COMMON_FIELD_KEY_MAP = {
+  textbook_version: 'textbookVersion',
+  textbookVersion: 'textbookVersion',
+  teaching_objectives: 'teachingObjectives',
+  unit_name: 'unitName',
+  topic: 'unitName',
+  project_topic: 'unitName',
+  lesson_topic: 'unitName',
+}
+
+const deriveWorkflowExtraFields = (steps, message, commonRecognized = {}) => {
+  const mergedExtraFields = {}
+  const semanticSlotValues = {}
+  const baseValues = {
+    grade: commonRecognized.grade || '',
+    subject: commonRecognized.subject || '',
+    textbookVersion: commonRecognized.textbookVersion || '',
+    unitName: commonRecognized.unitName || '',
+    seedContext: commonRecognized.seedContext || '',
+    teachingObjectives: commonRecognized.teachingObjectives || '',
+  }
+
+  steps.forEach((tool) => {
+    let recognized = deriveRecognizedFromMessage(tool, message, {}, {
+      ...baseValues,
+      ...mergedExtraFields,
+    })
+    recognized = applyRecognizedAliases(tool, recognized)
+    recognized = resolveSelectFieldCandidates(tool, recognized, {
+      ...baseValues,
+      ...mergedExtraFields,
+    }).recognized
+
+    Object.entries(recognized).forEach(([fieldKey, value]) => {
+      if (!hasFilledValue(value)) return
+
+      const commonFieldKey = WORKFLOW_COMMON_FIELD_KEY_MAP[fieldKey]
+      if (commonFieldKey && !hasFilledValue(baseValues[commonFieldKey])) {
+        baseValues[commonFieldKey] = value
+      }
+
+      if (!COMMON_WORKFLOW_VALUE_KEYS.has(fieldKey)) {
+        mergedExtraFields[fieldKey] = value
+      }
+
+      const semanticKey = getFieldSemanticSlot(fieldKey)
+      if (!semanticSlotValues[semanticKey]) {
+        semanticSlotValues[semanticKey] = value
+      }
+    })
+  })
+
+  steps.forEach((tool) => {
+    tool.fields.forEach((field) => {
+      if (hasFilledValue(mergedExtraFields[field.key])) return
+      const semanticKey = getFieldSemanticSlot(field.key)
+      const semanticValue = semanticSlotValues[semanticKey]
+      if (!hasFilledValue(semanticValue)) return
+      if (COMMON_WORKFLOW_VALUE_KEYS.has(field.key)) return
+      if (TOPIC_FIELD_KEY_SET.has(field.key) && hasFilledValue(baseValues.unitName)) return
+      mergedExtraFields[field.key] = semanticValue
+    })
+  })
+
+  return {
+    commonInputPatch: {
+      grade: baseValues.grade,
+      subject: baseValues.subject,
+      textbookVersion: baseValues.textbookVersion,
+      unitName: baseValues.unitName,
+      seedContext: baseValues.seedContext,
+      teachingObjectives: baseValues.teachingObjectives,
+    },
+    extraFields: mergedExtraFields,
+  }
 }
 
 const buildToolFormData = (tool, commonInput, extraFields) => {
@@ -259,36 +347,37 @@ const getMissingFields = (tool, formData) =>
   )
 
 const formatResultSnippet = (text) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 90)
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const WORKFLOW_STARTER_COPY = {
   'lesson-prep-flow': {
     title: '开始一节课备课',
-    description: '先说一句你的备课需求，AI 会帮你拆出教案、导入、练习和作业。',
+    description: '先把这节课的年级、课题和你的想法说出来，我会按步骤帮你把教案、练习和作业顺下来。',
     placeholder: '例如：我想给三年级讲《荷花》，希望课堂更生动一点。',
   },
   'unit-teaching-flow': {
     title: '开始单元整体备课',
-    description: '先说这个单元的年级、主题和目标，AI 会继续拆成单元级任务。',
+    description: '先说这个单元的年级、主题和目标，我会接着把单元设计、学历案这些内容串起来。',
     placeholder: '例如：四年级语文第六单元，想做一套完整的单元整体设计。',
   },
   'assessment-review-flow': {
     title: '开始练习与讲评',
-    description: '先说本次测验或练习主题，AI 会帮你衔接命题、讲评和反馈。',
+    description: '先说这次练习或测验围绕什么内容，我会接着把命题、讲评和反馈顺下来。',
     placeholder: '例如：给七年级分数运算做一套练习并配课堂讲评稿。',
   },
   'post-exam-feedback-flow': {
     title: '开始考后反馈',
-    description: '先说考试或作业后的反馈需求，AI 会整理讲评、反馈和家校沟通。',
+    description: '先说考试或作业后最想处理的问题，我会接着把讲评、反馈和家校沟通材料串起来。',
     placeholder: '例如：期中考试后，想生成试卷讲评、作文反馈和家校沟通文案。',
   },
   'class-management-flow': {
     title: '开始班主任沟通流程',
-    description: '先描述班级或学生情况，AI 会帮你串联班会、支持和家校沟通。',
+    description: '先把班级或学生的情况说清楚，我会接着把班会、支持方案和家校沟通顺起来。',
     placeholder: '例如：班里最近纪律波动，想准备一场主题班会和后续家校沟通。',
   },
   'teaching-research-flow': {
     title: '开始教研活动支持',
-    description: '先说教研场景和目标，AI 会继续准备说课、评课和活动方案。',
+    description: '先说这次教研要围绕什么内容展开，我会接着把说课、评课和活动方案准备起来。',
     placeholder: '例如：下周有公开课，想准备说课稿、听评课要点和教研活动方案。',
   },
 }
@@ -309,6 +398,17 @@ const WorkflowDetailPage = () => {
   const [runError, setRunError] = useState('')
   const [exporting, setExporting] = useState(false)
   const [expandedResultId, setExpandedResultId] = useState('')
+  const [workflowReviseModalOpen, setWorkflowReviseModalOpen] = useState(false)
+  const [workflowSelectedToolId, setWorkflowSelectedToolId] = useState('')
+  const [workflowSelectedBlockIndex, setWorkflowSelectedBlockIndex] = useState(-1)
+  const [workflowSelectedSnippet, setWorkflowSelectedSnippet] = useState('')
+  const [workflowReviseInstruction, setWorkflowReviseInstruction] = useState('')
+  const [workflowReviseError, setWorkflowReviseError] = useState('')
+  const [workflowReviseSuccess, setWorkflowReviseSuccess] = useState('')
+  const [workflowSelectionToolbar, setWorkflowSelectionToolbar] = useState(null)
+  const [workflowSelectionNotice, setWorkflowSelectionNotice] = useState(null)
+  const [isRevisingWorkflowBlock, setIsRevisingWorkflowBlock] = useState(false)
+  const workflowResultPreviewRef = useRef(null)
   const [commonInput, setCommonInput] = useState({
     grade: '',
     subject: '',
@@ -346,8 +446,8 @@ const WorkflowDetailPage = () => {
   const exampleChips = useMemo(() => getWorkflowExampleSeeds(workflowId), [workflowId])
   const starterCopy = WORKFLOW_STARTER_COPY[workflowId] || {
     title: `开始「${workflow?.name || '工作流'}」`,
-    description: '先说一句你的目标，AI 会帮你把这条流程拆开并继续执行。',
-    placeholder: `例如：我想通过「${workflow?.name || '这个工作流'}」快速生成一套可用内容。`,
+    description: '先把这次要准备的内容和目标说出来，我会按这条流程接着往下整理。',
+    placeholder: `例如：我想用「${workflow?.name || '这个工作流'}」把这次要用的材料一次整理出来。`,
   }
   const [stepStates, setStepStates] = useState([])
 
@@ -422,7 +522,7 @@ const WorkflowDetailPage = () => {
       steps.map((tool, index) => ({
         toolId: tool.id,
         name: tool.name,
-        status: workflowRun.steps?.[tool.id]?.status || (workflowRun.steps?.[tool.id]?.result ? 'done' : 'pending'),
+        status: workflowRun.steps?.[tool.id]?.result ? 'done' : (workflowRun.steps?.[tool.id]?.status || 'pending'),
         result: workflowRun.steps?.[tool.id]?.result || '',
         summary: workflowRun.steps?.[tool.id]?.summary || '',
         stepNumber: index + 1,
@@ -435,6 +535,164 @@ const WorkflowDetailPage = () => {
       setShowStepPromptModal(true)
     }
   }, [awaitingPrompt, phase])
+
+  const clearWorkflowTextSelection = () => {
+    if (typeof window === 'undefined') return
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const getWorkflowBlockIndexFromNode = (node) => {
+    let current = node
+    while (current) {
+      if (current.nodeType === Node.ELEMENT_NODE) {
+        const blockElement = current.closest?.('[data-workflow-result-block-index]')
+        if (blockElement) {
+          const index = Number(blockElement.getAttribute('data-workflow-result-block-index'))
+          return Number.isNaN(index) ? -1 : index
+        }
+      }
+      current = current.parentNode
+    }
+    return -1
+  }
+
+  const updateWorkflowSelectionToolbar = (toolId) => {
+    if (!workflowResultPreviewRef.current) return
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setWorkflowSelectionToolbar(null)
+      setWorkflowSelectionNotice(null)
+      return
+    }
+
+    const text = selection.toString().trim()
+    if (text.length < 2) {
+      setWorkflowSelectionToolbar(null)
+      setWorkflowSelectionNotice(null)
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    const commonAncestor = range.commonAncestorContainer
+    if (!workflowResultPreviewRef.current.contains(commonAncestor)) {
+      setWorkflowSelectionToolbar(null)
+      setWorkflowSelectionNotice(null)
+      return
+    }
+
+    const startIndex = getWorkflowBlockIndexFromNode(range.startContainer)
+    const endIndex = getWorkflowBlockIndexFromNode(range.endContainer)
+    const rect = range.getBoundingClientRect()
+    if (startIndex < 0 || endIndex < 0 || startIndex !== endIndex) {
+      setWorkflowSelectionToolbar(null)
+      setWorkflowSelectionNotice({
+        message: '当前只支持在同一段内改写，请缩小到单段内容再试。',
+        top: Math.max(rect.top - 52, 16),
+        left: clamp(rect.left + rect.width / 2, 180, window.innerWidth - 180),
+      })
+      return
+    }
+
+    setWorkflowSelectionNotice(null)
+    setWorkflowSelectionToolbar({
+      text,
+      toolId,
+      blockIndex: startIndex,
+      top: Math.max(rect.top - 52, 16),
+      left: clamp(rect.left + rect.width / 2, 120, window.innerWidth - 120),
+    })
+  }
+
+  const openWorkflowReviseModal = (toolId, blockIndex, snippet = '') => {
+    setWorkflowSelectedToolId(toolId)
+    setWorkflowSelectedBlockIndex(blockIndex)
+    setWorkflowSelectedSnippet(snippet)
+    setWorkflowReviseInstruction('')
+    setWorkflowReviseError('')
+    setWorkflowReviseSuccess('')
+    setWorkflowSelectionToolbar(null)
+    setWorkflowReviseModalOpen(true)
+  }
+
+  const closeWorkflowReviseModal = () => {
+    if (isRevisingWorkflowBlock) return
+    setWorkflowReviseModalOpen(false)
+    setWorkflowSelectedToolId('')
+    setWorkflowSelectedBlockIndex(-1)
+    setWorkflowSelectedSnippet('')
+    setWorkflowReviseInstruction('')
+    setWorkflowReviseError('')
+  }
+
+  const handleWorkflowResultMouseUp = (toolId) => {
+    window.setTimeout(() => updateWorkflowSelectionToolbar(toolId), 0)
+  }
+
+  const handleWorkflowReviseBlock = async () => {
+    const step = stepStates.find((item) => item.toolId === workflowSelectedToolId)
+    if (!step || workflowSelectedBlockIndex < 0 || !workflowReviseInstruction.trim()) return
+    const resultBlocks = splitResultBlocks(step.result || '')
+    const targetBlock = resultBlocks[workflowSelectedBlockIndex]
+    if (!targetBlock) return
+
+    const instruction = workflowSelectedSnippet
+      ? `请只改写这一段中的这部分内容：“${workflowSelectedSnippet}”。${workflowReviseInstruction.trim()}。请保持这段其他内容不变，并直接输出更新后的完整这一段。`
+      : workflowReviseInstruction.trim()
+
+    setIsRevisingWorkflowBlock(true)
+    setWorkflowReviseError('')
+    try {
+      const response = await fetch('/api/tools/revise-block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolId: workflowSelectedToolId,
+          formData: workflowRun.steps?.[workflowSelectedToolId]?.input || {},
+          fullContent: step.result,
+          selectedBlock: targetBlock.content,
+          instruction,
+        }),
+      })
+
+      if (!response.ok) throw new Error('局部改写失败，请稍后重试。')
+      const data = await response.json()
+      const revisedBlock = sanitizeGeneratedResult(data?.revisedBlock || '')
+      if (!revisedBlock) throw new Error('改写结果为空，请重试。')
+
+      const nextBlocks = [...resultBlocks]
+      nextBlocks[workflowSelectedBlockIndex] = {
+        ...nextBlocks[workflowSelectedBlockIndex],
+        content: revisedBlock,
+      }
+      const nextResult = sanitizeGeneratedResult(nextBlocks.map((block) => block.content).join('\n\n'))
+
+      setStepStates((current) => current.map((item) => (
+        item.toolId === workflowSelectedToolId
+          ? { ...item, result: nextResult, summary: summarizeNodeResult(nextResult), status: 'done' }
+          : item
+      )))
+      updateCurrentRun(workflow.id, (current) => ({
+        ...current,
+        steps: {
+          ...(current.steps || {}),
+          [workflowSelectedToolId]: {
+            ...(current.steps?.[workflowSelectedToolId] || {}),
+            status: 'done',
+            result: nextResult,
+            summary: summarizeNodeResult(nextResult),
+          },
+        },
+        updatedAt: new Date().toISOString(),
+      }))
+      setWorkflowReviseSuccess(workflowSelectedSnippet ? '选中的内容已经更新' : '这一段已经更新')
+      clearWorkflowTextSelection()
+      closeWorkflowReviseModal()
+    } catch (error) {
+      setWorkflowReviseError(error?.message || '局部改写失败，请稍后重试。')
+    } finally {
+      setIsRevisingWorkflowBlock(false)
+    }
+  }
 
   if (isBooting) {
     return (
@@ -569,31 +827,40 @@ const WorkflowDetailPage = () => {
       })
       if (!response.ok) throw new Error('分析失败')
       const data = await response.json()
+      const recognized = deriveWorkflowRecognizedFromMessage(seedInput.trim(), data?.recognized || {})
+      const workflowSeedExtraction = deriveWorkflowExtraFields(steps, seedInput.trim(), recognized)
+      const mergedCommonInput = {
+        ...commonInput,
+        grade: workflowSeedExtraction.commonInputPatch.grade || recognized.grade || commonInput.grade,
+        subject: workflowSeedExtraction.commonInputPatch.subject || recognized.subject || commonInput.subject,
+        textbookVersion: workflowSeedExtraction.commonInputPatch.textbookVersion || recognized.textbookVersion || commonInput.textbookVersion,
+        unitName: workflowSeedExtraction.commonInputPatch.unitName || recognized.unitName || commonInput.unitName,
+        seedContext: workflowSeedExtraction.commonInputPatch.seedContext || recognized.seedContext || seedInput.trim(),
+        teachingObjectives: workflowSeedExtraction.commonInputPatch.teachingObjectives || commonInput.teachingObjectives,
+      }
+      const mergedExtraFields = {
+        ...extraFields,
+        ...workflowSeedExtraction.extraFields,
+      }
       setCommonInput((current) => ({
         ...current,
-        grade: data?.recognized?.grade || current.grade,
-        subject: data?.recognized?.subject || current.subject,
-        textbookVersion: data?.recognized?.textbookVersion || current.textbookVersion,
-        unitName: data?.recognized?.unitName || current.unitName,
-        seedContext: data?.recognized?.seedContext || seedInput.trim(),
+        ...mergedCommonInput,
+      }))
+      setExtraFields((current) => ({
+        ...current,
+        ...mergedExtraFields,
       }))
       updateCurrentRun(workflow.id, (current) => ({
         ...current,
         workflowId: workflow.id,
         workflowName: workflow.name,
-        topic: data?.recognized?.unitName || seedInput.slice(0, 50),
+        topic: mergedCommonInput.unitName || seedInput.slice(0, 50),
         meta: {
           ...(current.meta || {}),
           phase: 'confirm',
           seedInput: seedInput.trim(),
-          commonInput: {
-            ...commonInput,
-            grade: data?.recognized?.grade || commonInput.grade,
-            subject: data?.recognized?.subject || commonInput.subject,
-            textbookVersion: data?.recognized?.textbookVersion || commonInput.textbookVersion,
-            unitName: data?.recognized?.unitName || commonInput.unitName,
-            seedContext: data?.recognized?.seedContext || seedInput.trim(),
-          },
+          commonInput: mergedCommonInput,
+          extraFields: mergedExtraFields,
           updatedAt: new Date().toISOString(),
         },
       }))
@@ -619,9 +886,10 @@ const WorkflowDetailPage = () => {
 
   const startRun = async (teachingObjectives = '') => {
     const finalCommonInput = teachingObjectives ? { ...commonInput, teachingObjectives } : commonInput
+    const finalExtraFields = { ...extraFields }
     const missingRequiredFields = confirmFields
       .filter((field) => {
-        const value = field.key in finalCommonInput ? finalCommonInput[field.key] : extraFields[field.key]
+        const value = field.key in finalCommonInput ? finalCommonInput[field.key] : finalExtraFields[field.key]
         return field.required && !String(value || '').trim()
       })
       .map((field) => field.label)
@@ -632,13 +900,13 @@ const WorkflowDetailPage = () => {
     }
 
     setCommonInput(finalCommonInput)
+    setExtraFields(finalExtraFields)
 
     resetCurrentRun(workflow.id)
-    setExtraFields({})
     setAwaitingPrompt(null)
     setStepStates((current) => current.map((item) => ({ ...item, status: 'pending', result: '' })))
     setPhase('run')
-    await runFromStep(0, {}, finalCommonInput)
+    await runFromStep(0, finalExtraFields, finalCommonInput)
   }
 
   const runFromStep = async (startIndex, mergedExtraFields = extraFields, currentCommonInput = commonInput, options = {}) => {
@@ -689,7 +957,7 @@ const WorkflowDetailPage = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ toolId: tool.id, formData: { ...toolFormData, __workflowContext: buildWorkflowContextPayload(index) } }),
         })
-        const result = await readStreamingText(response)
+        const result = sanitizeGeneratedResult(await readStreamingText(response))
         updateStepState(tool.id, { status: 'done', result, summary: summarizeNodeResult(result) })
         persistRun(tool, toolFormData, result)
 
@@ -769,6 +1037,7 @@ const WorkflowDetailPage = () => {
     const nextExtraFields = { ...extraFields, ...awaitingPrompt.values }
     setExtraFields(nextExtraFields)
     setShowStepPromptModal(false)
+    setAwaitingPrompt(null)
     await runFromStep(awaitingPrompt.stepIndex, nextExtraFields)
   }
 
@@ -865,7 +1134,7 @@ const WorkflowDetailPage = () => {
             <GitBranch className="h-4 w-4" />
             <span className="text-sm font-medium">{workflow.name}</span>
           </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">AI 备课工作流</div>
+          <div className="mt-2 text-2xl font-bold text-slate-900">AI 工作流</div>
           <div className="mt-2 text-sm text-slate-500">{workflow.description}</div>
         </div>
 
@@ -900,16 +1169,16 @@ const WorkflowDetailPage = () => {
                 ))}
               </div>
 
-              <button
-                onClick={analyzeSeed}
-                disabled={!seedInput.trim() || analyzingSeed}
-                className="w-full rounded-2xl bg-blue-600 px-6 py-4 text-base font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <div className="flex items-center justify-center gap-2">
-                  {analyzingSeed ? <Loader2 className="h-5 w-5 animate-spin" /> : <PlayCircle className="h-5 w-5" />}
-                  {analyzingSeed ? 'AI 正在分析...' : '开始流程'}
-                </div>
-              </button>
+                <button
+                  onClick={analyzeSeed}
+                  disabled={!seedInput.trim() || analyzingSeed}
+                  className="w-full rounded-2xl bg-blue-600 px-6 py-4 text-base font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    {analyzingSeed ? <Loader2 className="h-5 w-5 animate-spin" /> : <PlayCircle className="h-5 w-5" />}
+                  {analyzingSeed ? '正在整理信息...' : '开始流程'}
+                  </div>
+                </button>
 
               {runError && (
                 <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
@@ -945,7 +1214,7 @@ const WorkflowDetailPage = () => {
                     className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
                   >
                     {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    导出备课包
+                    导出结果包
                   </button>
                 )}
                 {['running', 'waiting', 'error', 'paused'].includes(workflowRun.meta?.phase || '') && !isRunning && (
@@ -974,6 +1243,7 @@ const WorkflowDetailPage = () => {
               <div className="space-y-3">
                 {stepStates.map((item) => {
                   const isExpanded = expandedResultId === item.toolId
+                  const displayStatus = item.result ? 'done' : item.status
                   const statusColors = {
                     pending: 'text-slate-400',
                     running: 'text-blue-600',
@@ -994,17 +1264,17 @@ const WorkflowDetailPage = () => {
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1">
                           <div className="text-sm font-medium text-slate-900">{item.stepNumber}. {item.name}</div>
-                          <div className={`mt-2 text-sm inline-flex items-center gap-1 ${statusColors[item.status]}`}>
-                            {statusIcons[item.status]}
-                            {item.status === 'done' && '已完成'}
-                            {item.status === 'running' && '生成中...'}
-                            {item.status === 'waiting' && '等待补充参数'}
-                            {item.status === 'pending' && '等待'}
-                            {item.status === 'error' && '执行失败'}
+                          <div className={`mt-2 text-sm inline-flex items-center gap-1 ${statusColors[displayStatus]}`}>
+                            {statusIcons[displayStatus]}
+                            {displayStatus === 'done' && '已完成'}
+                            {displayStatus === 'running' && '草稿生成中...'}
+                            {displayStatus === 'waiting' && '等待补充参数'}
+                            {displayStatus === 'pending' && '等待'}
+                            {displayStatus === 'error' && '执行失败'}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {item.status === 'waiting' && awaitingPrompt?.toolId === item.toolId && !showStepPromptModal && (
+                          {displayStatus === 'waiting' && awaitingPrompt?.toolId === item.toolId && !showStepPromptModal && (
                             <button
                               onClick={handleReopenPrompt}
                               className="inline-flex items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
@@ -1013,13 +1283,13 @@ const WorkflowDetailPage = () => {
                               继续补充参数
                             </button>
                           )}
-                          {(item.result || item.status === 'done') && (
+                          {(item.result || displayStatus === 'done') && (
                             <button onClick={() => setExpandedResultId(isExpanded ? '' : item.toolId)} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 transition-colors">
                               {isExpanded ? '收起' : '查看结果'}
                               {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </button>
                           )}
-                          {item.status === 'done' && (
+                          {displayStatus === 'done' && (
                             <button
                               onClick={() => handleRerunNode(item.toolId)}
                               className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-600 hover:bg-blue-100 transition-colors"
@@ -1031,8 +1301,59 @@ const WorkflowDetailPage = () => {
                         </div>
                       </div>
                       {item.result && (
-                        <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                          {isExpanded ? <pre className="whitespace-pre-wrap font-sans leading-7">{item.result}</pre> : `${formatResultSnippet(item.result)}...`}
+                        <div
+                          ref={isExpanded ? workflowResultPreviewRef : null}
+                          className="mt-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600"
+                          onMouseUp={() => handleWorkflowResultMouseUp(item.toolId)}
+                        >
+                          {isExpanded ? (
+                            <>
+                              {workflowSelectionToolbar?.toolId === item.toolId && (
+                                <div
+                                  className="fixed z-40 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-xl"
+                                  style={{
+                                    top: `${workflowSelectionToolbar.top}px`,
+                                    left: `${workflowSelectionToolbar.left}px`,
+                                    transform: 'translateX(-50%)',
+                                  }}
+                                >
+                                  <button
+                                    onClick={() => openWorkflowReviseModal(item.toolId, workflowSelectionToolbar.blockIndex, workflowSelectionToolbar.text)}
+                                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-medium text-blue-600 shadow-sm hover:bg-blue-50"
+                                  >
+                                    <Sparkles className="h-3.5 w-3.5" />
+                                    优化这段
+                                  </button>
+                                </div>
+                              )}
+                              {workflowSelectionNotice && (
+                                <div
+                                  className="fixed z-40 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700 shadow-lg"
+                                  style={{
+                                    top: `${workflowSelectionNotice.top}px`,
+                                    left: `${workflowSelectionNotice.left}px`,
+                                    transform: 'translateX(-50%)',
+                                  }}
+                                >
+                                  {workflowSelectionNotice.message}
+                                </div>
+                              )}
+                              <div className="space-y-5">
+                                {splitResultBlocks(item.result).map((block, index) => (
+                                  <div
+                                    key={`${item.toolId}-${block.id}`}
+                                    data-workflow-result-block-index={index}
+                                    className="group relative rounded-2xl transition-colors hover:bg-blue-50/20"
+                                  >
+                                    <div
+                                      className="px-1"
+                                      dangerouslySetInnerHTML={{ __html: markdownToHtml(block.content) }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : `${formatResultSnippet(item.result)}...`}
                         </div>
                       )}
                     </div>
@@ -1090,6 +1411,77 @@ const WorkflowDetailPage = () => {
             }))
           }}
         />
+
+        {workflowReviseModalOpen && workflowSelectedToolId && workflowSelectedBlockIndex >= 0 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4">
+            <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h4 className="text-lg font-semibold text-slate-900">
+                    {workflowSelectedSnippet ? '优化选中的内容' : '优化这一段'}
+                  </h4>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {workflowSelectedSnippet
+                      ? '告诉我你想怎么改这段选中文本，我会尽量只动这部分，并保持这一步其他内容稳定。'
+                      : '告诉我这一段你想怎么调整，我只改这一段，其他内容不动。'}
+                  </p>
+                </div>
+                <button
+                  onClick={closeWorkflowReviseModal}
+                  className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mb-4 max-h-48 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                {workflowSelectedSnippet ? (
+                  <div className="whitespace-pre-wrap text-sm text-slate-700">{workflowSelectedSnippet}</div>
+                ) : (
+                  <div
+                    className="text-sm text-slate-700"
+                    dangerouslySetInnerHTML={{
+                      __html: markdownToHtml(
+                        splitResultBlocks(stepStates.find((item) => item.toolId === workflowSelectedToolId)?.result || '')[workflowSelectedBlockIndex]?.content || ''
+                      ),
+                    }}
+                  />
+                )}
+              </div>
+
+              <textarea
+                value={workflowReviseInstruction}
+                onChange={(e) => setWorkflowReviseInstruction(e.target.value)}
+                placeholder="比如：这段更像班主任真实会写的话；更适合三年级学生理解；保留原意但更简洁。"
+                rows={4}
+                className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+
+              {workflowReviseError && (
+                <p className="mt-3 text-sm text-red-500">{workflowReviseError}</p>
+              )}
+              {workflowReviseSuccess && (
+                <p className="mt-3 text-sm text-emerald-600">{workflowReviseSuccess}</p>
+              )}
+
+              <div className="mt-5 flex justify-end gap-3">
+                <button
+                  onClick={closeWorkflowReviseModal}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleWorkflowReviseBlock}
+                  disabled={!workflowReviseInstruction.trim() || isRevisingWorkflowBlock}
+                  className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isRevisingWorkflowBlock ? '处理中...' : '确认改写'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

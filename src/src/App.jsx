@@ -8,6 +8,7 @@ import ProfilePage from './pages/ProfilePage'
 import WorkflowPage from './pages/WorkflowPage'
 import WorkflowDetailPage from './pages/WorkflowDetailPage'
 import WorkflowBuilderPage from './pages/WorkflowBuilderPage'
+import TeacherCompanionPage from './pages/TeacherCompanionPage'
 import Layout from './components/Layout'
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
           <Route path="/tools" element={<ToolLibraryPage />} />
           <Route path="/tool/:id" element={<ToolDetailPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/companion" element={<TeacherCompanionPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Routes>
       </Layout>

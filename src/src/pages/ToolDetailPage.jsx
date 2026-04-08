@@ -23,6 +23,17 @@ import {
 } from 'lucide-react'
 import { getToolById } from '../data/tools'
 import { getWorkflowRun, syncWorkflowRunFromServer, updateWorkflowRun } from '../data/workflows'
+import {
+  applyRecognizedAliases,
+  buildRequiredFieldQueue,
+  buildSeedSummary,
+  buildSlotState,
+  deriveRecognizedFromMessage,
+  getSoftOptionFields,
+  hasFilledValue,
+  isFieldVisible,
+  resolveSelectFieldCandidates,
+} from '../lib/slotFilling'
 
 const countTableDelimiters = (line) => (line.match(/(?<!\\)\|/g) || []).length
 
@@ -49,64 +60,314 @@ const getTableCells = (line) => {
   return cells.length >= 2 ? cells : null
 }
 
-const normalizeTableBlock = (rows) => {
-  if (rows.length < 2) return rows
+const hasTabSeparators = (line) => /\t/.test(line) && line.split('\t').filter(t => t.trim()).length >= 2
 
-  const normalizedRows = rows.map((row) => {
-    const cells = getTableCells(row)
-    if (!cells) return row.trim()
-    return `| ${cells.join(' | ')} |`
-  })
+const splitTabTable = (line) => {
+  const parts = line.split('\t').map(p => p.trim()).filter(Boolean)
+  if (parts.length < 2) return null
+  return parts
+}
 
-  const secondRowCells = getTableCells(normalizedRows[1])
-  const isSeparatorRow = secondRowCells?.every((cell) => /^:?-{3,}:?$/.test(cell))
+const isTabSeparatedTableRow = (line) => {
+  if (!hasTabSeparators(line)) return false
+  if (line.trim().startsWith('|')) return false
+  const cells = splitTabTable(line)
+  if (!cells || cells.length < 2) return false
+  return true
+}
 
-  if (isSeparatorRow) return normalizedRows
+const isTableRow = (line) => {
+  const trimmed = line.trim()
+  if (!trimmed || trimmed === '|' || trimmed === '\\') return false
+  if (trimmed.startsWith('|') && getTableCells(trimmed)) return true
+  if (hasTabSeparators(trimmed) && splitTabTable(trimmed)?.length >= 2) return true
+  return false
+}
 
-  const headerCells = getTableCells(normalizedRows[0]) || []
-  const separatorRow = `| ${headerCells.map(() => '---').join(' | ')} |`
-  return [normalizedRows[0], separatorRow, ...normalizedRows.slice(1)]
+const countTableColumns = (rows) => {
+  if (!rows.length) return 0
+  for (const row of rows) {
+    const trimmed = row.trim()
+    if (trimmed.startsWith('|')) {
+      const cells = getTableCells(trimmed)
+      if (cells && cells.length >= 2) return cells.length
+    }
+    const parts = splitTabTable(trimmed)
+    if (parts && parts.length >= 2) return parts.length
+  }
+  return 0
+}
+
+const normalizeMixedTableRow = (row, expectedCols) => {
+  if (!row) return row
+  const trimmed = row.trim()
+  
+  if (trimmed.startsWith('|')) {
+    const cells = getTableCells(trimmed)
+    if (cells && cells.length >= 2) {
+      return `| ${cells.join(' | ')} |`
+    }
+  }
+  
+  if (hasTabSeparators(trimmed)) {
+    const parts = trimmed.split('\t').map(p => p.trim()).filter(Boolean)
+    if (parts.length >= 2) {
+      const processedParts = parts.map(part => {
+        if (part.startsWith('|') || part.endsWith('|')) {
+          const inner = part.replace(/^\|+|\|+$/g, '').trim()
+          const pipeCells = inner.split('|').map(c => c.trim()).filter(Boolean)
+          return pipeCells.length > 0 ? pipeCells.join(' | ') : part
+        }
+        if (part.includes('|')) {
+          const pipeCells = part.split('|').map(c => c.trim()).filter(Boolean)
+          return pipeCells.length > 0 ? pipeCells.join(' | ') : part
+        }
+        return part
+      })
+      
+      return `| ${processedParts.join(' | ')} |`
+    }
+  }
+  
+  return trimmed
+}
+
+const splitPipeSegments = (line) => {
+  const normalized = String(line || '')
+    .replace(/\\\|/g, '|')
+    .trim()
+
+  if (!normalized) return []
+
+  const stripped = normalized
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+
+  return stripped
+    .split('|')
+    .map((cell) => cell.trim())
+}
+
+const isMarkdownTableSeparator = (line) => {
+  const cells = getTableCells(line?.trim?.() || '')
+  return Array.isArray(cells) && cells.length >= 2 && cells.every((cell) => /^:?-+:?$/.test(cell))
+}
+
+const buildNormalizedTableBlock = (lines, startIndex) => {
+  const headerCells = getTableCells(lines[startIndex]?.trim() || '')
+  const separatorCells = getTableCells(lines[startIndex + 1]?.trim() || '')
+  if (!headerCells || !separatorCells) return null
+  if (!separatorCells.every((cell) => /^:?-+:?$/.test(cell))) return null
+
+  const expectedCols = headerCells.length
+  const normalizedRows = [
+    `| ${headerCells.join(' | ')} |`,
+    `| ${Array(expectedCols).fill('---').join(' | ')} |`,
+  ]
+
+  let i = startIndex + 2
+  while (i < lines.length) {
+    const rawLine = String(lines[i] || '').replace(/\r/g, '')
+    const trimmed = rawLine.trim()
+
+    if (!trimmed) {
+      let lookahead = i + 1
+      while (lookahead < lines.length && !String(lines[lookahead] || '').trim()) {
+        lookahead += 1
+      }
+      const nextNonEmpty = String(lines[lookahead] || '').trim()
+      if (nextNonEmpty.startsWith('|')) {
+        i = lookahead
+        continue
+      }
+      break
+    }
+
+    if (!trimmed.startsWith('|')) {
+      break
+    }
+
+    if (isMarkdownTableSeparator(trimmed)) {
+      i += 1
+      continue
+    }
+
+    let cells = splitPipeSegments(trimmed)
+    if (cells.length === 0) {
+      i += 1
+      continue
+    }
+
+    i += 1
+
+    while (i < lines.length) {
+      const continuationRaw = String(lines[i] || '').replace(/\r/g, '')
+      const continuation = continuationRaw.trim()
+
+      if (!continuation) {
+        let lookahead = i + 1
+        while (lookahead < lines.length && !String(lines[lookahead] || '').trim()) {
+          lookahead += 1
+        }
+        const nextNonEmpty = String(lines[lookahead] || '').trim()
+        if (nextNonEmpty.startsWith('|')) {
+          i = lookahead
+          break
+        }
+        break
+      }
+
+      if (continuation.startsWith('|')) {
+        break
+      }
+
+      if (continuation.includes('|') && cells.length < expectedCols) {
+        const segments = splitPipeSegments(continuation)
+        if (segments.length > 0) {
+          cells[cells.length - 1] = `${cells[cells.length - 1] || ''} ${segments[0]}`.trim()
+          cells.push(...segments.slice(1))
+          i += 1
+          continue
+        }
+      }
+
+      cells[cells.length - 1] = `${cells[cells.length - 1] || ''} ${continuation}`.trim()
+      i += 1
+    }
+
+    while (cells.length < expectedCols) {
+      cells.push('')
+    }
+
+    normalizedRows.push(`| ${cells.slice(0, expectedCols).join(' | ')} |`)
+  }
+
+  return {
+    nextIndex: i,
+    rows: normalizedRows,
+  }
 }
 
 const normalizeGeneratedMarkdown = (text) => {
   const lines = text.split('\n')
   const normalizedLines = []
-  let tableBuffer = []
+  let i = 0
 
-  const flushTableBuffer = () => {
-    if (!tableBuffer.length) return
-    if (tableBuffer.length >= 2) {
-      normalizedLines.push(...normalizeTableBlock(tableBuffer))
-    } else {
-      normalizedLines.push(tableBuffer[0].trim())
-    }
-    tableBuffer = []
-  }
-
-  lines.forEach((rawLine) => {
+  while (i < lines.length) {
+    const rawLine = String(lines[i] || '')
     const line = rawLine
+      .replace(/\r/g, '')
       .trimEnd()
       .replace(/\s*\\+\s*$/g, '')
-      .replace(/\s+\|\s*$/g, '')
-    const isCandidateTableRow = !!getTableCells(line)
 
-    if (isCandidateTableRow) {
-      tableBuffer.push(line)
-      return
+    if (line.startsWith('|') && i + 1 < lines.length && isMarkdownTableSeparator(lines[i + 1])) {
+      const tableBlock = buildNormalizedTableBlock(lines, i)
+      if (tableBlock) {
+        normalizedLines.push(...tableBlock.rows)
+        i = tableBlock.nextIndex
+        continue
+      }
     }
 
-    flushTableBuffer()
-    if (line === '|' || line === '\\') return
-    normalizedLines.push(line)
-  })
-
-  flushTableBuffer()
+    if (line !== '\\') {
+      normalizedLines.push(line)
+    }
+    i += 1
+  }
 
   return normalizedLines
     .join('\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+const convertHtmlTablesToMarkdown = (text) => {
+  const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi
+  
+  return text.replace(tableRegex, (tableMatch, tableContent) => {
+    const rows = []
+    const headerCells = []
+    const bodyRows = []
+    
+    const headerRegex = /<thead[^>]*>([\s\S]*?)<\/thead>/gi
+    const headerMatch = headerRegex.exec(tableContent)
+    if (headerMatch) {
+      const thRegex = /<(th|td)[^>]*>([\s\S]*?)<\/(th|td)>/gi
+      let cellMatch
+      while ((cellMatch = thRegex.exec(headerMatch[1])) !== null) {
+        const cellContent = stripHtmlTags(cellMatch[2]).trim()
+        headerCells.push(cellContent || '')
+      }
+    }
+    
+    const bodyRegex = /<tbody[^>]*>([\s\S]*?)<\/tbody>/gi
+    const bodyMatch = bodyRegex.exec(tableContent)
+    const rowsContent = bodyMatch ? bodyMatch[1] : tableContent.replace(/<thead[\s\S]*?<\/thead>/gi, '')
+    
+    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+    let trMatch
+    while ((trMatch = trRegex.exec(rowsContent)) !== null) {
+      const cells = []
+      const cellRegex = /<(th|td)[^>]*(?:class="[^"]*")?[^>]*>([\s\S]*?)<\/(th|td)>/gi
+      let cellMatch
+      while ((cellMatch = cellRegex.exec(trMatch[1])) !== null) {
+        const cellContent = stripHtmlTags(cellMatch[2]).trim()
+        cells.push(cellContent || '')
+      }
+      if (cells.length > 0) {
+        if (headerCells.length === 0 && rows.length === 0) {
+          headerCells.push(...cells)
+        } else {
+          bodyRows.push(cells)
+        }
+      }
+    }
+    
+    if (headerCells.length === 0) return ''
+    
+    const colCount = headerCells.length
+    const separator = `| ${Array(colCount).fill('---').join(' | ')} |`
+    
+    const headerRow = `| ${headerCells.map(c => c.replace(/\|/g, '\\|')).join(' | ')} |`
+    const bodyRowsMd = bodyRows.map(row => 
+      `| ${row.map(c => c.replace(/\|/g, '\\|')).join(' | ')} |`
+    )
+    
+    return `\n${headerRow}\n${separator}\n${bodyRowsMd.join('\n')}\n`
+  })
+}
+
+const stripHtmlTags = (html) => {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<p[^>]*>/gi, '')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<div[^>]*>/gi, '')
+    .replace(/<span[^>]*>/gi, '')
+    .replace(/<\/span>/gi, '')
+    .replace(/<strong[^>]*>/gi, '')
+    .replace(/<\/strong>/gi, '')
+    .replace(/<b[^>]*>/gi, '')
+    .replace(/<\/b>/gi, '')
+    .replace(/<em[^>]*>/gi, '')
+    .replace(/<\/em>/gi, '')
+    .replace(/<i[^>]*>/gi, '')
+    .replace(/<\/i>/gi, '')
+    .replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '$2 ($1)')
+    .replace(/<a[^>]*>([\s\S]*?)<\/a>/gi, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&ldquo;/g, '"')
+    .replace(/&rdquo;/g, '"')
+    .replace(/&lsquo;/g, "'")
+    .replace(/&rsquo;/g, "'")
 }
 
 const replaceFormMarkup = (text) => text
@@ -189,16 +450,8 @@ const sanitizeGeneratedResult = (text) => {
   cleaned = cleaned.replace(/<pre[^>]*><code[^>]*>(.*?)<\/code><\/pre>/gi, '\n```\n$1\n```\n')
   cleaned = cleaned.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
 
-  // 处理表格标签
-  cleaned = cleaned.replace(/<table[^>]*>/gi, '\n')
-  cleaned = cleaned.replace(/<\/table>/gi, '\n')
-  cleaned = cleaned.replace(/<thead[^>]*>/gi, '')
-  cleaned = cleaned.replace(/<\/thead>/gi, '')
-  cleaned = cleaned.replace(/<tbody[^>]*>/gi, '')
-  cleaned = cleaned.replace(/<\/tbody>/gi, '')
-  cleaned = cleaned.replace(/<tr[^>]*>/gi, '\n| ')
-  cleaned = cleaned.replace(/<\/tr>/gi, ' |')
-  cleaned = cleaned.replace(/<(th|td)[^>]*>(.*?)<\/(th|td)>/gi, ' $2 |')
+  // 处理表格标签 - 使用完整提取方式避免嵌套问题
+  cleaned = convertHtmlTablesToMarkdown(cleaned)
 
   // 处理链接和图片标签
   cleaned = cleaned.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
@@ -662,32 +915,32 @@ const buildPromptFromScenario = (tool, scenario) => {
 
   switch (tool.category) {
     case '教学设计':
-      return `${prefix}帮我生成一份${tool.name}，${scenario.teaching_objectives || '希望目标清晰、课堂活动自然、能直接拿去用'}。`
+      return `${prefix}想做一份${tool.name}，${scenario.teaching_objectives || '希望目标清楚、课堂环节顺一点，老师拿过去就能接着改'}。`
     case '教学内容':
-      return `${prefix}我想做一份${tool.name}，${scenario.teaching_objectives || '内容要贴近课堂使用，学生读起来不吃力'}。`
+      return `${prefix}想整理一份${tool.name}，${scenario.teaching_objectives || '内容贴近课堂，学生读起来不费劲'}。`
     case '练习命题':
-      return `${prefix}帮我生成一份${tool.name}，${scenario.question_type || '题型尽量丰富'}，${scenario.difficulty || '难度适中'}。`
+      return `${prefix}想出一份${tool.name}，${scenario.question_type || '题型别太单一'}，${scenario.difficulty || '整体难度中等'}。`
     case '差异化教学':
-      return `${prefix}我想做一份${tool.name}，${scenario.student_situation || '要兼顾基础学生和需要拔高的学生'}。`
+      return `${prefix}想做一份${tool.name}，${scenario.student_situation || '既要照顾基础学生，也要给学有余力的学生留空间'}。`
     case '反馈评价':
       if (keys.includes('student_name')) {
-        return `${scenario.grade || '三年级'}学生${scenario.student_name || '小明'}，优点是${scenario.strengths || '课堂积极'}，不足是${scenario.improvements || '作业质量还要提升'}，帮我生成一份${tool.name}。`
+        return `${scenario.grade || '三年级'}学生${scenario.student_name || '小明'}，优点是${scenario.strengths || '课堂愿意参与'}，还需要改进的是${scenario.improvements || '作业质量还不够稳定'}，想写一份${tool.name}。`
       }
       if (keys.includes('exam_name')) {
-        return `${scenario.exam_name || '一次单元测验'}，${scenario.student_issues || '学生在阅读和审题上问题比较集中'}，帮我生成一份${tool.name}。`
+        return `${scenario.exam_name || '一次单元测验'}之后，${scenario.student_issues || '学生在阅读和审题上问题比较集中'}，想做一份${tool.name}。`
       }
-      return `${prefix}帮我做一份${tool.name}，${scenario.evaluation_content || '我会提供待评价内容'}，${scenario.evaluation_criteria || '重点突出可操作建议'}。`
+      return `${prefix}想做一份${tool.name}，${scenario.evaluation_content || '我会把需要评价的内容发给你'}，${scenario.evaluation_criteria || '重点写清可改进的地方'}。`
     case '学生支持':
-      return `${scenario.grade || '三年级'}学生，${scenario.support_type || '学困生辅导'}方向，${scenario.student_strengths || '学生有一些积极表现'}，${scenario.student_situation || '目前学习和课堂状态需要支持'}，帮我做一份${tool.name}。`
+      return `${scenario.grade || '三年级'}学生，想往${scenario.support_type || '学困生辅导'}这个方向跟进，${scenario.student_strengths || '学生也有一些比较好的表现'}，${scenario.student_situation || '目前学习和课堂状态还需要多支持'}，帮我整理一份${tool.name}。`
     case '沟通写作':
       if (keys.includes('event_name')) {
-        return `${scenario.event_name || '校园活动'}，${scenario.event_details || '需要把活动亮点和参与方式写清楚'}，帮我生成一份${tool.name}。`
+        return `${scenario.event_name || '校园活动'}，${scenario.event_details || '需要把活动亮点和参与方式写清楚'}，想写一份${tool.name}。`
       }
-      return `${scenario.audience || '家长'}沟通场景，${scenario.content || '我会先告诉你具体情况'}，帮我生成一份${tool.name}，${scenario.special_needs || '语气自然一点'}。`
+      return `这次是和${scenario.audience || '家长'}沟通，${scenario.content || '我把具体情况告诉你'}，想写一份${tool.name}，${scenario.special_needs || '语气自然一点'}。`
     case '课堂助手':
-      return `我想配置一个「${scenario.bot_role || tool.name}」，服务${scenario.grade_subject || '当前学段学生'}，围绕${scenario.theme_scope || '课堂答疑和方法点拨'}工作，回答风格${scenario.response_style || '清晰易懂'}。`
+      return `想做一个「${scenario.bot_role || tool.name}」，主要给${scenario.grade_subject || '当前学段学生'}用，围绕${scenario.theme_scope || '课堂答疑和方法点拨'}，回答风格${scenario.response_style || '清楚一点'}。`
     default:
-      return `${prefix}帮我生成一份${tool.name}，尽量贴近真实课堂场景。`
+      return `${prefix}想做一份${tool.name}，内容尽量具体一点，别太空。`
   }
 }
 
@@ -696,120 +949,57 @@ const buildToolScenarioPool = (tool) => {
     return TOOL_SCENARIO_OVERRIDES[tool.id]
   }
 
-  const presets = [
-    {
-      grade_subject: '五年级语文',
-      grade: '五年级',
-      textbook_version: '部编版',
-      topic: '《慈母情深》',
-      unit_name: '第六单元',
-      teaching_objectives: '想突出朗读体验和人物情感理解',
-      question_type: '阅读题为主',
-      difficulty: '难度适中',
-      student_situation: '学生能读懂内容，但表达比较浅',
-      student_strengths: '课堂愿意发言，也愿意配合任务',
-      exam_name: '五年级语文单元测',
-      student_issues: '阅读理解失分比较集中',
-      evaluation_content: '一篇五年级习作',
-      evaluation_criteria: '重点看内容具体和情感表达',
-      audience: '家长',
-      content: '最近孩子阅读状态不错，但书写和作业习惯还需要家校一起跟进',
-      special_needs: '语气温和、具体一点',
-      bot_role: '小学语文阅读助教',
-      theme_scope: '阅读理解、写作表达和课文预习',
-      response_style: '启发式',
-    },
-    {
-      grade_subject: '三年级数学',
-      grade: '三年级',
-      textbook_version: '人教版',
-      topic: '分数的初步认识',
-      unit_name: '分数单元',
-      teaching_objectives: '想让学生能结合操作活动理解概念',
-      question_type: '填空题和应用题混合',
-      difficulty: '基础+提升',
-      student_situation: '学生基础一般，容易把概念混淆',
-      student_strengths: '动手积极，愿意参与操作活动',
-      exam_name: '三年级数学随堂测',
-      student_issues: '概念理解还不稳，应用题容易出错',
-      evaluation_content: '一份数学学习单',
-      evaluation_criteria: '重点看概念理解和表达过程',
-      audience: '家长',
-      content: '想和家长沟通孩子最近数学概念掌握不稳的问题',
-      special_needs: '希望更像老师平时真实会说的话',
-      bot_role: '小学数学错题讲解助手',
-      theme_scope: '概念讲解、错题复盘和练习推荐',
-      response_style: '清晰易懂',
-    },
-    {
-      grade_subject: '初二物理',
-      grade: '初二',
-      textbook_version: '人教版',
-      topic: '光的反射',
-      unit_name: '光现象',
-      teaching_objectives: '希望把实验观察和规律总结讲清楚',
-      question_type: '简答题和实验题',
-      difficulty: '适中',
-      student_situation: '学生对现象有兴趣，但抽象归纳能力偏弱',
-      student_strengths: '实验参与度高，愿意表达观察结果',
-      exam_name: '八年级物理月考',
-      student_issues: '实验分析和作图题错误偏多',
-      evaluation_content: '一次实验报告',
-      evaluation_criteria: '重点看现象描述、结论和证据对应',
-      audience: '家长',
-      content: '想反馈孩子最近物理实验课表现和学习建议',
-      special_needs: '表达专业但不要太生硬',
-      bot_role: '初中物理实验助教',
-      theme_scope: '实验设计、现象解释和错题讲评',
-      response_style: '严谨清晰',
-    },
-    {
-      grade_subject: '高一英语',
-      grade: '高一',
-      textbook_version: '人教版',
-      topic: '环境保护主题阅读',
-      unit_name: '人与环境单元',
-      teaching_objectives: '想让学生在阅读中积累表达并能开口讨论',
-      question_type: '阅读题和表达题结合',
-      difficulty: '适中',
-      student_situation: '学生词汇量还可以，但口头表达不够主动',
-      student_strengths: '阅读速度不错，合作学习比较积极',
-      exam_name: '高一英语周测',
-      student_issues: '长难句理解和观点表达比较弱',
-      evaluation_content: '一份英语展示稿',
-      evaluation_criteria: '重点看表达完整度、语言准确度和逻辑',
-      audience: '家长',
-      content: '想沟通孩子英语学习中的阅读和表达问题',
-      special_needs: '语气真诚一点，别太模板化',
-      bot_role: '高中英语口语陪练助手',
-      theme_scope: '阅读理解、表达训练和课堂讨论支持',
-      response_style: '鼓励式',
-    },
-    {
-      grade_subject: '七年级历史',
-      grade: '初一',
-      textbook_version: '部编版',
-      topic: '秦统一中国',
-      unit_name: '中国古代史单元',
-      teaching_objectives: '希望学生能梳理事件背景、影响和历史意义',
-      question_type: '材料题和简答题',
-      difficulty: '适中',
-      student_situation: '学生记忆点多，但不会串联历史脉络',
-      student_strengths: '愿意讲故事，课堂参与感不错',
-      exam_name: '七年级历史单元测',
-      student_issues: '材料题提取信息不完整',
-      evaluation_content: '一份历史探究任务单',
-      evaluation_criteria: '重点看史实准确和表达逻辑',
-      audience: '家长',
-      content: '想沟通孩子历史学科目前的学习状态和改进方向',
-      special_needs: '想更具体一点，不要太空泛',
-      bot_role: '初中历史探究助教',
-      theme_scope: '史料阅读、知识梳理和课堂提问引导',
-      response_style: '结构化',
-    },
-  ]
+  const categoryBanks = {
+    '教学设计': [
+      `给五年级语文《慈母情深》做一份${tool.name}，想突出朗读体验和人物情感理解。`,
+      `围绕三年级数学“分数的初步认识”做一份${tool.name}，希望课堂活动更清楚、学生更容易参与。`,
+      `给初二物理“光的反射”准备一份${tool.name}，把实验观察、规律归纳和板书思路串起来。`,
+      `做一份适合公开课展示的${tool.name}，主题是《背影》，希望导入自然、问题链清晰。`
+    ],
+    '教学内容': [
+      `给四年级语文准备一份围绕《荷花》的${tool.name}，内容要贴近课堂，学生读起来不吃力。`,
+      `想做一份关于“校园消防安全”的${tool.name}，适合六年级学生阅读和讨论。`,
+      `围绕“光合作用”整理一份${tool.name}，希望结构清楚、概念表达准确。`,
+      `给三年级数学准备一份“分数初步认识”的${tool.name}，尽量结合生活情境。`
+    ],
+    '练习命题': [
+      `给五年级语文《慈母情深》出一份${tool.name}，题量不要太多，难度中等，适合课堂使用。`,
+      `围绕初二物理“光的反射”生成一份${tool.name}，想要基础题和提升题都带一点。`,
+      `给三年级数学“分数的初步认识”做一份${tool.name}，题型尽量丰富，学生做起来不吃力。`,
+      `我有一段阅读材料，想直接整理成一份${tool.name}，重点考查理解和表达。`
+    ],
+    '反馈评价': [
+      `给一个五年级学生写综合评语，优点是课堂积极，改进点是作业质量还要提升，帮我生成一份${tool.name}。`,
+      `我有一篇学生习作，想做一份${tool.name}，重点指出内容、结构和语言表达上的建议。`,
+      `针对一次月考结果做一份${tool.name}，想把主要问题和改进方向写清楚。`,
+      `帮我生成一份别太模板化的${tool.name}，语气鼓励一些，但要有明确建议。`
+    ],
+    '学生支持': [
+      `一个三年级学生课堂愿意参与，但作业总拖延，帮我做一份${tool.name}，要可执行一点。`,
+      `一个初一学生最近情绪波动比较大，想做一份偏心理支持的${tool.name}。`,
+      `学生基础薄弱但愿意配合，缺少方法，帮我整理一份${tool.name}。`,
+      `想给一个表达欲强但学习习惯不稳定的学生准备一份${tool.name}。`
+    ],
+    '沟通写作': [
+      `孩子最近课堂走神和作业拖延比较明显，帮我写一份${tool.name}，语气温和但要把问题说清楚。`,
+      `想和家长沟通孩子最近阅读状态下滑的问题，帮我生成一份${tool.name}，最好带一点家庭配合建议。`,
+      `我要发一条班级通知，提醒家长下周准备活动材料，帮我整理成一份清楚好发的${tool.name}。`,
+      `帮我写一份更像老师平时真实会发的${tool.name}，主题是提醒家长关注孩子作业习惯。`
+    ],
+    '课堂助手': [
+      `我想配置一个帮助学生做阅读理解和写作表达训练的${tool.name}，对象是五年级语文。`,
+      `做一个适合初二物理课堂答疑的${tool.name}，重点帮助学生理解实验现象和规律。`,
+      `我想要一个给小学数学学生做错题讲解的${tool.name}，风格清楚一点、别太啰嗦。`,
+      `帮我设定一个适合高中英语口语陪练的${tool.name}，回答要鼓励式但有纠错。`
+    ],
+  }
 
-  return presets.map((scenario) => buildPromptFromScenario(tool, scenario))
+  return categoryBanks[tool.category] || [
+    `我先把年级、主题和情况告诉你，你帮我整理成一份能直接改的${tool.name}。`,
+    `想做一份${tool.name}，内容具体一点，别只写套话。`,
+    `帮我按课堂里真的会遇到的情况来写一份${tool.name}。`,
+    `这份${tool.name}想拿去直接用或稍微改一下就能上。`,
+  ]
 }
 
 const ToolDetailPage = () => {
@@ -828,7 +1018,7 @@ const ToolDetailPage = () => {
   const [isLoading, setIsLoading] = useState(true)
   
   // 新的交互状态
-  const [interactionPhase, setInteractionPhase] = useState('chat') // 'chat' | 'confirm' | 'guiding' | 'result'
+  const [interactionPhase, setInteractionPhase] = useState('chat') // 'chat' | 'guiding' | 'result'
   const [chatMessages, setChatMessages] = useState([])
   const [userInput, setUserInput] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -840,7 +1030,13 @@ const ToolDetailPage = () => {
   const [formData, setFormData] = useState({})
   const [fieldAnswers, setFieldAnswers] = useState({})
   const [seedSuggestions, setSeedSuggestions] = useState([])
-  const [lockedFieldKeys, setLockedFieldKeys] = useState([])
+  const [seedMeta, setSeedMeta] = useState({
+    explicitFieldKeys: [],
+    inferredFieldKeys: [],
+    optionalFieldKeys: [],
+    slotSummary: [],
+    slotState: [],
+  })
   
   // 高级选项状态
   const [showAdvancedTip, setShowAdvancedTip] = useState(false)
@@ -935,6 +1131,7 @@ const ToolDetailPage = () => {
         setHistoryMode(true)
         setFormData(historyItem.input || initialData)
         setFieldAnswers(historyItem.input || {})
+        setSeedMeta({ explicitFieldKeys: [], inferredFieldKeys: [], optionalFieldKeys: [], slotSummary: [], slotState: [] })
         setResult(sanitizeGeneratedResult(historyItem.result || ''))
         setInteractionPhase('result')
       } else if (workflowStepState?.result) {
@@ -942,6 +1139,7 @@ const ToolDetailPage = () => {
         setHistoryMode(false)
         setFormData({ ...initialData, ...stepInput })
         setFieldAnswers(stepInput)
+        setSeedMeta({ explicitFieldKeys: [], inferredFieldKeys: [], optionalFieldKeys: [], slotSummary: [], slotState: [] })
         setResult(sanitizeGeneratedResult(workflowStepState.result || ''))
         setInteractionPhase('result')
       } else {
@@ -951,7 +1149,7 @@ const ToolDetailPage = () => {
         setChatMessages([])
         setFieldAnswers(workflowPrefill)
         setSeedSuggestions([])
-        setLockedFieldKeys([])
+        setSeedMeta({ explicitFieldKeys: [], inferredFieldKeys: [], optionalFieldKeys: [], slotSummary: [], slotState: [] })
         setCurrentFieldIndex(0)
         setShowAdvancedTip(false)
         setShowAdvancedForm(false)
@@ -990,18 +1188,14 @@ const ToolDetailPage = () => {
   // 生成推荐问题
   const generateSuggestedQuestions = (tool) => {
     const categoryTemplates = buildToolScenarioPool(tool)
-    const fieldDrivenTemplates = tool.fields
-      .filter((field) => !field.isAdvanced)
-      .map((field) => FIELD_PROMPT_BANK[field.key])
-      .filter(Boolean)
-      .flat()
 
     const genericTemplates = [
-      `想做一份更贴近真实课堂的${tool.name}，我会先告诉你年级、主题和场景。`,
-      `请按中国学校的真实教学场景，帮我生成一份可直接使用的${tool.name}。`,
+      `我先把年级、主题和课堂情况告诉你，你帮我整理成一份能直接改的${tool.name}。`,
+      `想做一份${tool.name}，内容具体一点，别太空。`,
+      `这份${tool.name}最好像老师平时真的会写、会发、会拿去用的那种。`,
     ]
 
-    const templates = [...categoryTemplates, ...genericTemplates, ...fieldDrivenTemplates.map((item) => `围绕「${item}」这个场景，帮我生成一份${tool.name}。`)]
+    const templates = [...categoryTemplates, ...genericTemplates]
     const deduped = templates.filter((item, index) => templates.indexOf(item) === index)
     return shuffleList(deduped).slice(0, 4)
   }
@@ -1034,86 +1228,6 @@ const ToolDetailPage = () => {
     }
 
     return questionMap[field.key] || `${field.label}${field.required ? '（这项需要先确认）' : ''}`
-  }
-
-  const isFilledValue = (value) => {
-    if (value === undefined || value === null) return false
-    if (typeof value === 'string') return value.trim() !== ''
-    if (typeof value === 'boolean') return value
-    return true
-  }
-
-  const buildRequiredFieldQueue = (tool, aiRequiredFields = [], recognized = {}, existingFormData = {}, existingFieldAnswers = {}) => {
-    const aiFieldMap = new Map(
-      (aiRequiredFields || [])
-        .filter((field) => field?.key)
-        .map((field) => [field.key, field])
-    )
-
-    const orderedKeys = []
-    ;(aiRequiredFields || []).forEach((field) => {
-      if (field?.key && !orderedKeys.includes(field.key)) orderedKeys.push(field.key)
-    })
-    tool.fields
-      .filter((field) => field.required && !field.isAdvanced)
-      .forEach((field) => {
-        if (!orderedKeys.includes(field.key)) orderedKeys.push(field.key)
-      })
-
-    return orderedKeys
-      .map((key) => {
-        const field = tool.fields.find((item) => item.key === key && !item.isAdvanced)
-        if (!field) return null
-
-        const recognizedValue = recognized[key]
-        const existingValue = existingFieldAnswers[key] ?? existingFormData[key]
-        if (isFilledValue(recognizedValue) || isFilledValue(existingValue)) {
-          return null
-        }
-
-        const aiField = aiFieldMap.get(key)
-        return {
-          key: field.key,
-          label: field.label,
-          type: field.type,
-          required: !!field.required,
-          placeholder: aiField?.placeholder || getFriendlyQuestion(field),
-          options: aiField?.options?.length ? aiField.options : (field.options || [])
-        }
-      })
-      .filter(Boolean)
-  }
-
-  const getHardConstraintDefaults = (tool) =>
-    tool.fields
-      .filter((field) => ['grade_subject', 'grade', 'topic', 'unit_name', 'project_topic', 'lesson_topic', 'textbook_version'].includes(field.key))
-      .map((field) => field.key)
-
-  const continueFromConfirm = () => {
-    const mergedAdvancedFields = tool.fields.filter((field) => field.isAdvanced)
-    const filteredRequiredFields = buildRequiredFieldQueue(
-      tool,
-      [],
-      fieldAnswers,
-      formData,
-      fieldAnswers
-    )
-
-    setRequiredFields(filteredRequiredFields)
-    setAdvancedFields(mergedAdvancedFields)
-    setInteractionPhase('guiding')
-    setCurrentFieldIndex(0)
-
-    if (filteredRequiredFields.length === 0) {
-      if (mergedAdvancedFields.length > 0) {
-        setShowAdvancedTip(true)
-      } else {
-        setInteractionPhase('result')
-        setTimeout(() => handleGenerate(), 0)
-      }
-    } else {
-      setShowAdvancedTip(false)
-    }
   }
 
   const persistWorkflowStep = (nextFields, nextResult = '') => {
@@ -1173,7 +1287,7 @@ const ToolDetailPage = () => {
       setRequiredFields([])
       setAdvancedFields([])
       setSeedSuggestions([])
-      setLockedFieldKeys([])
+      setSeedMeta({ explicitFieldKeys: [], inferredFieldKeys: [], optionalFieldKeys: [], slotSummary: [], slotState: [] })
       setCurrentFieldIndex(0)
       setShowAdvancedTip(false)
       setShowAdvancedForm(false)
@@ -1195,13 +1309,96 @@ const ToolDetailPage = () => {
         content: seedResult.message || '我先帮你锁定了基础信息。'
       }])
       
-      const recognized = seedResult.recognized || {}
-      setFieldAnswers(prev => ({ ...prev, ...recognized }))
-      setFormData(prev => ({ ...prev, ...recognized }))
-      setSeedSuggestions(Array.isArray(seedResult.suggestions) ? seedResult.suggestions : [])
-      setLockedFieldKeys(seedResult.hardFieldKeys?.length ? seedResult.hardFieldKeys : getHardConstraintDefaults(tool))
-      setInteractionPhase('confirm')
+      const explicitRecognized = seedResult.explicit || {}
+      const inferredRecognized = seedResult.inferred || {}
+      let recognized = {
+        ...explicitRecognized,
+        ...inferredRecognized,
+        ...(seedResult.recognized || {}),
+      }
+      recognized = applyRecognizedAliases(tool, recognized)
+      recognized = deriveRecognizedFromMessage(
+        tool,
+        message,
+        recognized,
+        buildInitialFormData(tool, workflowContext?.prefill || {})
+      )
+      const selectCandidateResolution = resolveSelectFieldCandidates(
+        tool,
+        recognized,
+        buildInitialFormData(tool, workflowContext?.prefill || {}),
+        seedResult.candidateFieldOptions || {}
+      )
+      recognized = selectCandidateResolution.recognized
+
+      const suggestions = Array.isArray(seedResult.suggestions) ? seedResult.suggestions : []
+      const explicitFieldKeys = Array.from(new Set([
+        ...Object.keys(explicitRecognized),
+        ...(seedResult.explicitFieldKeys || []),
+      ]))
+      const inferredFieldKeys = Array.from(new Set([
+        ...Object.keys(inferredRecognized),
+        ...(seedResult.inferredFieldKeys || []),
+        ...(selectCandidateResolution.autoFilledKeys || []),
+      ]))
+      const optionalFieldKeys = Array.from(new Set(seedResult.optionalFieldKeys || []))
+      const nextFieldAnswers = {
+        ...(workflowContext?.prefill || {}),
+        ...recognized,
+      }
+      const nextFormData = {
+        ...buildInitialFormData(tool, workflowContext?.prefill || {}),
+        ...recognized,
+      }
+      const nextRequiredFields = buildRequiredFieldQueue(
+        tool,
+        seedResult.hardFieldKeys || [],
+        recognized,
+        nextFormData,
+        nextFieldAnswers,
+        selectCandidateResolution.optionHints || {}
+      )
+      const nextAdvancedFields = getSoftOptionFields(
+        tool,
+        suggestions,
+        recognized,
+        nextFormData,
+        optionalFieldKeys,
+        explicitFieldKeys
+      )
+      const nextAdvancedFieldKeys = new Set(nextAdvancedFields.map((field) => field.key))
+      const nextSuggestions = suggestions.filter((suggestion) => (
+        suggestion?.fieldKey &&
+        nextAdvancedFieldKeys.has(suggestion.fieldKey) &&
+        !hasFilledValue(nextFormData[suggestion.fieldKey])
+      ))
+      const slotSummary = Array.isArray(seedResult.slotSummary) && seedResult.slotSummary.length > 0
+        ? seedResult.slotSummary
+        : buildSeedSummary(tool, nextFieldAnswers, explicitFieldKeys, inferredFieldKeys)
+      const nextSlotState = buildSlotState(tool, nextFieldAnswers, explicitFieldKeys, inferredFieldKeys)
+
+      setFieldAnswers(nextFieldAnswers)
+      setFormData(nextFormData)
+      setRequiredFields(nextRequiredFields)
+      setAdvancedFields(nextAdvancedFields)
+      setSeedSuggestions(nextSuggestions)
+      setSeedMeta({
+        explicitFieldKeys,
+        inferredFieldKeys,
+        optionalFieldKeys,
+        slotSummary,
+        slotState: nextSlotState,
+      })
+      setCurrentFieldIndex(0)
+      setInteractionPhase('guiding')
       setShowAdvancedForm(false)
+      setShowAdvancedTip(nextRequiredFields.length === 0 && nextAdvancedFields.length > 0)
+
+      if (nextRequiredFields.length === 0 && nextAdvancedFields.length === 0) {
+        setInteractionPhase('result')
+        setTimeout(() => handleGenerate(nextFormData), 0)
+      }
+
       setIsAnalyzing(false)
 
     } catch (error) {
@@ -1229,52 +1426,6 @@ const ToolDetailPage = () => {
     }
 
     return response.json()
-  }
-
-  // AI分析用户输入
-  const analyzeUserInput = async (message) => {
-    const response = await fetch('/api/tools/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        toolId: tool.id,
-        message
-      })
-    })
-    if (!response.ok) {
-      throw new Error('分析失败')
-    }
-    const parsed = await response.json()
-
-    const recognized = parsed?.recognized && typeof parsed.recognized === 'object' ? parsed.recognized : {}
-
-    if (Object.keys(recognized).length > 0) {
-      setFormData(prev => ({ ...prev, ...recognized }))
-      setFieldAnswers(prev => ({ ...prev, ...recognized }))
-    }
-
-    if (parsed) {
-      return {
-        message: parsed.message || '我先帮你梳理了一下需求，还差几项关键信息。',
-        recognized,
-        requiredFields: Array.isArray(parsed.requiredFields) ? parsed.requiredFields : [],
-        advancedFields: Array.isArray(parsed.advancedFields) ? parsed.advancedFields : []
-      }
-    }
-
-      return {
-        message: '我先帮你梳理了一下需求，还差几项关键信息。',
-        recognized: {},
-        requiredFields: tool.fields.filter(f => f.required && !f.isAdvanced).slice(0, 3).map((field) => ({
-          key: field.key,
-          label: field.label,
-        type: field.type,
-        required: !!field.required,
-        placeholder: getFriendlyQuestion(field),
-        options: field.options || []
-      })),
-      advancedFields: []
-    }
   }
 
   // 处理引导式填写
@@ -1375,7 +1526,8 @@ const ToolDetailPage = () => {
   }
 
   // 生成内容
-  const handleGenerate = async () => {
+  const handleGenerate = async (overrideFormData = null) => {
+    const payloadFormData = overrideFormData || formData
     setIsGenerating(true)
     setResult('')
     setGenerateError('')
@@ -1389,7 +1541,7 @@ const ToolDetailPage = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           toolId: tool.id,
-          formData
+          formData: payloadFormData
         })
       })
 
@@ -1446,10 +1598,10 @@ const ToolDetailPage = () => {
       const finalResult = sanitizeGeneratedResult(generatedText)
       renderedTextRef.current = finalResult
       setResult(finalResult)
-      persistWorkflowStep(formData, finalResult)
+      persistWorkflowStep(payloadFormData, finalResult)
 
       // 保存到历史
-      saveToHistory(formData, finalResult)
+      saveToHistory(payloadFormData, finalResult)
 
     } catch (error) {
       console.error('生成失败:', error)
@@ -1756,8 +1908,8 @@ const ToolDetailPage = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 mb-4">
                 <MessageSquare className="w-8 h-8 text-blue-500" />
               </div>
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">先说一下你想做什么</h3>
-              <p className="text-sm text-slate-500">描述需求，AI 会帮你拆解成关键信息并逐步完善</p>
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">先说说这次要做什么</h3>
+              <p className="text-sm text-slate-500">把年级、主题和你的具体想法说出来就行，我会接着帮你往下整理</p>
             </div>
 
             {/* 推荐问题 */}
@@ -1800,64 +1952,6 @@ const ToolDetailPage = () => {
       )}
     </div>
   )
-
-  const renderConfirmPhase = () => {
-    const lockedFields = tool.fields.filter((field) => lockedFieldKeys.includes(field.key))
-
-    return (
-      <div className="px-6 py-6 pb-24 md:pb-6">
-        <div className="rounded-3xl border border-blue-100 bg-white p-6">
-          <div className="mb-2 text-lg font-semibold text-slate-900">确认 AI 预填信息</div>
-          <p className="mb-5 text-sm text-slate-500">先锁定硬约束，再从 AI 建议里挑选更合适的软建议。</p>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            {lockedFields.map((field) => (
-              <div key={field.key}>
-                <label className="mb-2 block text-sm font-medium text-slate-700">{field.label}</label>
-                <input
-                  value={formData[field.key] || ''}
-                  onChange={(e) => {
-                    setFormData((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    setFieldAnswers((prev) => ({ ...prev, [field.key]: e.target.value }))
-                  }}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-400"
-                />
-              </div>
-            ))}
-          </div>
-
-          {seedSuggestions.length > 0 && (
-            <div className="mt-5">
-              <div className="mb-2 text-sm font-medium text-slate-700">AI 软建议</div>
-              <div className="flex flex-wrap gap-2">
-                {seedSuggestions.map((suggestion, index) => (
-                  <button
-                    key={`${suggestion.fieldKey}-${index}`}
-                    onClick={() => {
-                      setFormData((prev) => ({ ...prev, [suggestion.fieldKey]: suggestion.value }))
-                      setFieldAnswers((prev) => ({ ...prev, [suggestion.fieldKey]: suggestion.value }))
-                    }}
-                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-600"
-                  >
-                    {suggestion.label || suggestion.fieldKey}：{suggestion.value}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={continueFromConfirm}
-              className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-medium text-white"
-            >
-              继续生成
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   // 渲染引导式填写界面
   const renderGuidingPhase = () => {
@@ -1920,19 +2014,28 @@ const ToolDetailPage = () => {
           <div className="mb-6">
 
             {/* 已填写的信息标签 */}
-            {Object.keys(fieldAnswers).length > 0 && (
+            {(seedMeta.slotSummary.length > 0 || Object.keys(fieldAnswers).length > 0) && (
               <div className="mb-4 p-3 bg-white/60 rounded-2xl backdrop-blur-sm">
                 <p className="text-xs text-slate-500 mb-2 font-medium">我已经了解这些信息：</p>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(fieldAnswers).map(([key, value]) => {
-                    const field = requiredFields.find(f => f.key === key)
+                  {(seedMeta.slotSummary.length > 0
+                    ? seedMeta.slotSummary
+                    : Object.entries(fieldAnswers).map(([key, value]) => {
+                        const field = tool.fields.find((item) => item.key === key)
+                        return {
+                          key,
+                          label: field?.label || key,
+                          value,
+                        }
+                      })
+                  ).map((item) => {
                     return (
                       <span 
-                        key={key} 
+                        key={item.key || `${item.label}-${item.value}`}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full text-xs text-slate-700 border border-slate-200 shadow-sm"
                       >
-                        <span className="font-medium">{field?.label}:</span>
-                        <span>{value}</span>
+                        <span className="font-medium">{item.label}:</span>
+                        <span>{item.value}</span>
                         <Check className="w-3 h-3 text-emerald-500" />
                       </span>
                     )
@@ -2071,6 +2174,28 @@ const ToolDetailPage = () => {
                     <p className="text-sm text-slate-600 mb-4 leading-relaxed">
                       下面的信息可以帮我更了解你的班级和学生，不填也没关系，填了会生成更贴合实际的内容哦。
                     </p>
+
+                    {seedSuggestions.length > 0 && (
+                      <div className="mb-5">
+                        <div className="mb-2 text-sm font-medium text-slate-700">AI 也帮你想了几个可直接采用的补充方向：</div>
+                        <div className="flex flex-wrap gap-2">
+                          {seedSuggestions.map((suggestion, index) => (
+                            <button
+                              key={`${suggestion.fieldKey}-${index}`}
+                              onClick={() => {
+                                setFormData((prev) => ({ ...prev, [suggestion.fieldKey]: suggestion.value }))
+                                setFieldAnswers((prev) => ({ ...prev, [suggestion.fieldKey]: suggestion.value }))
+                                setShowAdvancedForm(true)
+                                setShowAdvancedTip(false)
+                              }}
+                              className="rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-600"
+                            >
+                              {suggestion.label || suggestion.fieldKey}：{suggestion.value}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     
                     {/* 提示点 */}
                     <div className="grid grid-cols-2 gap-2 mb-5">
@@ -2162,6 +2287,24 @@ const ToolDetailPage = () => {
                       placeholder={field.placeholder || '选填...'}
                       className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-100 focus:border-amber-400 bg-white"
                     />
+                  )}
+                  {seedSuggestions.some((item) => item.fieldKey === field.key) && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {seedSuggestions
+                        .filter((item) => item.fieldKey === field.key)
+                        .map((suggestion, index) => (
+                          <button
+                            key={`${field.key}-suggestion-${index}`}
+                            onClick={() => {
+                              setFormData((prev) => ({ ...prev, [field.key]: suggestion.value }))
+                              setFieldAnswers((prev) => ({ ...prev, [field.key]: suggestion.value }))
+                            }}
+                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700"
+                          >
+                            采用建议：{suggestion.value}
+                          </button>
+                        ))}
+                    </div>
                   )}
                 </div>
               ))}
@@ -2420,7 +2563,6 @@ const ToolDetailPage = () => {
             </div>
           )}
           {interactionPhase === 'chat' && renderChatPhase()}
-          {interactionPhase === 'confirm' && renderConfirmPhase()}
           {interactionPhase === 'guiding' && renderGuidingPhase()}
           {interactionPhase === 'result' && renderResultPhase()}
         </div>
